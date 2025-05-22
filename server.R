@@ -5,6 +5,10 @@ library(sf)
 library(dplyr)
 library(openxlsx)
 library(leaflet.extras)
+library(httr)
+library(jsonlite)
+library(shinyjs)
+
 
 sf_use_s2(FALSE)
 
@@ -54,24 +58,53 @@ function(input, output, session) {
     datatable(
       addresses %>%
         mutate(
-          `Completed?` = ifelse(sn %in% completed_rows$done, "\u2713", "")
+          `Completed?` = ifelse(
+            sn %in% completed_rows$done,
+            "<i class='fas fa-check-circle' style='font-size: 20px; color: green;'></i>",
+            ""
+          )
         ) %>%
-        select(sn, direccion_full, `Completed?`),
+        select(sn, mun, direccion_full, `Completed?`),
       selection = "single",
-      options = list(pageLength = 10)
+      filter = "top", 
+      options = list(
+        pageLength = 100,
+        columnDefs = list(
+          list(
+            targets = "_all",
+            className = "dt-left wrap-text"
+          )
+        )
+      ),
+      escape = FALSE,
+      rownames = FALSE,
+      colnames = c("ID", "Municipality", "Original Address", "Completed?")
     )
   })
   
-  output$selected_address <- renderPrint({
+  output$selected_address <- renderText({
     req(selected_sn())
-    addr_row <- addresses %>% filter(sn == selected_sn())
-    addr_row$direccion_full 
+    addresses %>% filter(sn == selected_sn()) %>% pull(direccion_full)
   })
+  
+  reverse_address <- reactiveVal("")
+  selected_lat <- reactiveVal("")
+  selected_lng <- reactiveVal("")
+  
   
   output$map <- renderLeaflet({
     leaflet() %>%
       addTiles() %>%
+      addResetMapButton() %>%
       addSearchOSM(options = searchOptions(collapsed = FALSE)) %>%
+      addReverseSearchOSM(
+        showSearchLocation = FALSE,
+        showBounds = FALSE,
+        showFeature = FALSE,
+        displayText = FALSE,
+        fitBounds = FALSE,
+        group = "ReverseGeocode"
+      ) %>%
       setView(lng = santa_ana_coords["lng"], lat = santa_ana_coords["lat"], zoom = 12) %>%
       addPolygons(
         data = intervention_mask,
@@ -126,6 +159,7 @@ function(input, output, session) {
     
     proxy <- leafletProxy("map")
     proxy %>%
+      clearSearchOSM() %>%
       clearGroup("Corrected Point") %>%
       clearGroup("Geocoded Points") %>%
       clearControls() %>%
@@ -198,6 +232,22 @@ function(input, output, session) {
       st_sf(geometry = st_sfc(st_point(c(click$lng, click$lat)), crs = 4326))
     )
     
+    selected_lat(as.character(click$lat))
+    selected_lng(as.character(click$lng))
+    
+    # Query Nominatim reverse geocoding API
+    url <- sprintf("https://nominatim.openstreetmap.org/reverse?format=json&lat=%s&lon=%s&zoom=18&addressdetails=1",
+                   click$lat, click$lng)
+    
+    res <- httr::GET(url, user_agent("R Shiny App"))
+    rev_data <- fromJSON(content(res, "text", encoding = "UTF-8"), flatten = TRUE)
+    
+    # Extract full address if available
+    rev_address <- rev_data$display_name %||% "Address not found"
+    reverse_address(rev_address)
+    selected_lat(as.character(click$lat))
+    selected_lng(as.character(click$lng))
+    
     updateTextInput(session, "correct_lat", value = as.character(click$lat))
     updateTextInput(session, "correct_lng", value = as.character(click$lng))
     
@@ -214,6 +264,19 @@ function(input, output, session) {
         popup = "Corrected location",
         group = "Corrected Point"
       )
+    
+    
+  })
+  
+  output$reverse_geocode_address <- renderText({
+    reverse_address()
+  })
+  output$correct_lat <- renderText({
+    selected_lat()
+  })
+  
+  output$correct_lng <- renderText({
+    selected_lng()
   })
   
   observeEvent(input$confirm_point, {
@@ -225,25 +288,44 @@ function(input, output, session) {
     
     # Save form data and corrected geometry
     confirmed_data$data[[sn_val]] <- list(
-      lat = input$correct_lat,
-      lng = input$correct_lng,
+      lat = as.numeric(selected_lat()),
+      lng = as.numeric(selected_lng()),
+      reverse_address = reverse_address(),
       location_type = input$location_type,
       notes = input$notes,
-      geometry = corrected_point()
+      geometry = corrected_point(),
+      timestamp = Sys.time()
     )
-    
+
     # Redraw table with check mark
     output$address_table <- renderDT({
       datatable(
         addresses %>%
           mutate(
-            `Completed?` = ifelse(sn %in% completed_rows$done, "\u2713", "")
+            `Completed?` = ifelse(
+              sn %in% completed_rows$done,
+              "<i class='fas fa-check-circle' style='font-size: 20px; color: green;'></i>",
+              ""
+            )
           ) %>%
-          select(sn, direccion_full, `Completed?`),
+          select(sn, mun, direccion_full, `Completed?`),
         selection = "single",
-        options = list(pageLength = 10)
+        filter = "top",  # Enables filter input row
+        options = list(
+          pageLength = 100,
+          columnDefs = list(
+            list(
+              targets = "_all",
+              className = "dt-left wrap-text"
+            )
+          )
+        ),
+        escape = FALSE,
+        rownames = FALSE,
+        colnames = c("ID", "Municipality", "Original Address", "Completed?")
       )
     })
+    
   })
   
   output$download_data <- downloadHandler(
@@ -257,15 +339,18 @@ function(input, output, session) {
         vals <- confirmed_data$data[[sn]]
         tibble(
           sn = sn,
-          latitude = vals$lat,
-          longitude = vals$lng,
-          location_type = vals$location_type,
-          notes = vals$notes,
-          timestamp = vals$timestamp
+          latitude = if (is.null(vals$lat)) NA_real_ else vals$lat,
+          longitude = if (is.null(vals$lng)) NA_real_ else vals$lng,
+          reverse_geocoded_address = if (is.null(vals$reverse_address)) NA_character_ else vals$reverse_address,
+          location_type = if (is.null(vals$location_type)) NA_character_ else vals$location_type,
+          notes = if (is.null(vals$notes)) NA_character_ else vals$notes,
+          timestamp = if (is.null(vals$timestamp)) NA else vals$timestamp
         )
-      }) %>% bind_rows() %>%
-        left_join(addresses, by=c("sn"))
+      }) %>% bind_rows()
       
+      if (nrow(df) == 0) return(NULL)
+      
+      df <- left_join(df, addresses, by = "sn")
       write.xlsx(df, file)
     }
   )
@@ -279,8 +364,9 @@ function(input, output, session) {
     completed_rows$done <- unique(c(completed_rows$done, sn_val))
     
     confirmed_data$data[[sn_val]] <- list(
-      lat = input$correct_lat,
-      lng = input$correct_lng,
+      lat = as.numeric(selected_lat()),
+      lng = as.numeric(selected_lng()),
+      reverse_address = reverse_address(),
       location_type = input$location_type,
       notes = input$notes,
       geometry = corrected_point(),
@@ -291,13 +377,89 @@ function(input, output, session) {
       datatable(
         addresses %>%
           mutate(
-            `Completed?` = ifelse(sn %in% completed_rows$done, "\u2713", "")
+            `Completed?` = ifelse(
+              sn %in% completed_rows$done,
+              "<i class='fas fa-check-circle' style='font-size: 20px; color: green;'></i>",
+              ""
+            )
           ) %>%
-          select(sn, direccion_full, `Completed?`),
+          select(sn, mun, direccion_full, `Completed?`),
         selection = "single",
-        options = list(pageLength = 10)
+        filter = "top",
+        options = list(
+          pageLength = 100,
+          columnDefs = list(
+            list(
+              targets = "_all",
+              className = "dt-left wrap-text"
+            )
+          )
+        ),
+        escape = FALSE,
+        rownames = FALSE,
+        colnames = c("ID", "Municipality", "Original Address", "Completed?")
       )
     })
   })
   
+  observe({
+    if (is.null(selected_sn())) {
+      corrected_point(NULL)
+      reverse_address("")
+      selected_lat("")
+      selected_lng("")
+      
+      updateTextInput(session, "correct_lat", value = "")
+      updateTextInput(session, "correct_lng", value = "")
+      updateTextInput(session, "notes", value = "")
+      updateSelectInput(session, "location_type", selected = "")
+    }
+  })
+  observeEvent(input$address_table_rows_selected, {
+    corrected_point(NULL)
+    reverse_address("")
+    selected_lat("")
+    selected_lng("")
+    
+    updateTextInput(session, "correct_lat", value = "")
+    updateTextInput(session, "correct_lng", value = "")
+    updateTextInput(session, "notes", value = "")
+    updateSelectInput(session, "location_type", selected = "")
+    
+    sn_val <- selected_sn()
+    if (!is.null(sn_val) && sn_val %in% names(confirmed_data$data)) {
+      vals <- confirmed_data$data[[sn_val]]
+      
+      reverse_address(vals$reverse_address %||% "")
+      selected_lat(as.character(vals$lat))
+      selected_lng(as.character(vals$lng))
+      
+      updateTextInput(session, "correct_lat", value = vals$lat)
+      updateTextInput(session, "correct_lng", value = vals$lng)
+      updateTextInput(session, "notes", value = vals$notes)
+      updateSelectInput(session, "location_type", selected = vals$location_type)
+      
+      leafletProxy("map") %>%
+        clearGroup("Corrected Point") %>%
+        addAwesomeMarkers(
+          data = vals$geometry,
+          icon = awesomeIcons(
+            icon = 'star',
+            iconColor = 'black',
+            markerColor = 'yellow',
+            library = 'fa'
+          ),
+          popup = "Corrected location",
+          group = "Corrected Point"
+        )
+    }
+  })
+  
+  observe({
+    if (length(confirmed_data$data) > 0) {
+      shinyjs::enable("download_data")
+    } else {
+      shinyjs::disable("download_data")
+    }
+  })
 }
