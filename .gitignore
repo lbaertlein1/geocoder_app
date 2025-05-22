@@ -47,3 +47,8 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+data/0_address.RDS
+data/ch_area_base_4326.geojson
+data/El Salvador_Municipios.zip
+data/sa_area_base2.geojson
+data/sss_area_base.geojson
