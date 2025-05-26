@@ -96,9 +96,8 @@ server <- function(input, output, session) {
     leaflet(options = leafletOptions(minZoom = 2, maxZoom = 19)) %>%
       # Base layers
       addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
-      addProviderTiles("CartoDB.Voyager", group = "CARTO Voyager") %>%
-      addProviderTiles("CartoDB.Positron", group = "CARTO Positron") %>%
-      addProviderTiles("Esri.WorldImagery", group = "ESRI Satellite") %>%
+      addProviderTiles("CartoDB.Voyager", group = "CARTO") %>%
+      addProviderTiles("Esri.WorldImagery", group = "Satellite") %>%
       
       addResetMapButton() %>%
       addSearchOSM(options = searchOptions(collapsed = FALSE)) %>%
@@ -131,7 +130,7 @@ server <- function(input, output, session) {
       
       # Layer controls
       addLayersControl(
-        baseGroups = c("OpenStreetMap", "CARTO Voyager", "CARTO Positron", "ESRI Satellite"),
+        baseGroups = c("OpenStreetMap", "CARTO", "Satellite"),
         overlayGroups = c("Intervention Areas"),
         options = layersControlOptions(collapsed = FALSE)
       )
