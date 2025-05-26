@@ -13,9 +13,9 @@ library(shinyjs)
 sf_use_s2(FALSE)
 
 # Load data
-intervention_areas <- readRDS("data/Shapefiles/intervention_areas.rds")
-addresses <- readRDS("data/clean/addresses_list.rds")
-geocode_pts <- readRDS("data/clean/addresses_geocode_pts.rds")
+intervention_areas <- readRDS("data/Shapefiles/intervention_areas.Rds")
+addresses <- readRDS("data/clean/addresses_list.Rds")
+geocode_pts <- readRDS("data/clean/addresses_geocode_pts.Rds")
 
 # Create inverse mask
 country_outline <- st_read("data/raw/El Salvador_Municipios/WGS84_Municipios.shp") %>%
@@ -32,7 +32,7 @@ intervention_mask <- st_difference(country_outline, intervention_union) %>%
 
 santa_ana_coords <- c(lng = -89.681, lat = 13.994)
 
-function(input, output, session) {
+server <- function(input, output, session) {
   
   corrected_point <- reactiveVal(NULL)
   confirmed_data <- reactiveValues(data = list())
@@ -93,8 +93,13 @@ function(input, output, session) {
   
   
   output$map <- renderLeaflet({
-    leaflet() %>%
-      addTiles() %>%
+    leaflet(options = leafletOptions(minZoom = 2, maxZoom = 19)) %>%
+      # Base layers
+      addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+      addProviderTiles("CartoDB.Voyager", group = "CARTO Voyager") %>%
+      addProviderTiles("CartoDB.Positron", group = "CARTO Positron") %>%
+      addProviderTiles("Esri.WorldImagery", group = "ESRI Satellite") %>%
+      
       addResetMapButton() %>%
       addSearchOSM(options = searchOptions(collapsed = FALSE)) %>%
       addReverseSearchOSM(
@@ -105,13 +110,16 @@ function(input, output, session) {
         fitBounds = FALSE,
         group = "ReverseGeocode"
       ) %>%
+      
       setView(lng = santa_ana_coords["lng"], lat = santa_ana_coords["lat"], zoom = 12) %>%
+      
+      # Combine mask + intervention areas into one overlay group
       addPolygons(
         data = intervention_mask,
         fillColor = "grey",
         fillOpacity = 0.2,
         stroke = FALSE,
-        group = "Mask"
+        group = "Intervention Areas"
       ) %>%
       addPolygons(
         data = intervention_areas,
@@ -119,8 +127,16 @@ function(input, output, session) {
         weight = 1,
         fill = FALSE,
         group = "Intervention Areas"
+      ) %>%
+      
+      # Layer controls
+      addLayersControl(
+        baseGroups = c("OpenStreetMap", "CARTO Voyager", "CARTO Positron", "ESRI Satellite"),
+        overlayGroups = c("Intervention Areas"),
+        options = layersControlOptions(collapsed = FALSE)
       )
   })
+  
   
   observeEvent(selected_sn(), {
     req(selected_sn())

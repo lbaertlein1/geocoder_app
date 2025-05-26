@@ -4,7 +4,7 @@ library(DT)
 library(shinydashboard)
 library(shinyjs)
 
-fluidPage(
+ui <- fluidPage(
   shinyjs::useShinyjs(),
   tags$head(
     tags$style(HTML(".map-box, .table-box { height: 600px; overflow-y: auto; }")),
