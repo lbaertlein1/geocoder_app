@@ -108,15 +108,31 @@ upload_confirmed_data <- function(updated_df) {
 
 
 # ---- Shared palette + buffer size ----
-accuracy_levels <- c("full_match", "street", "place", "city", "country", "unknown")
-accuracy_colors <- c(
-  full_match = "#1a9641",
-  street     = "#a6d96a",
-  place      = "#ffffbf",
-  city       = "#fdae61",
-  country    = "#d7191c",
-  unknown    = "#999999"
+# Labels for legend and user display
+accuracy_labels <- c(
+  full_match = "Full Match",
+  street     = "Street Level",
+  place      = "Place or Landmark",
+  city       = "City or Town",
+  country    = "Country",
+  unknown    = "Unknown"
 )
+
+# Match with existing levels
+accuracy_levels <- c("full_match", "street", "place", "city", "country", "unknown")
+
+# Colors for each accuracy level
+accuracy_colors <- c(
+  full_match = "#00cc00",  # bright green
+  street     = "#33ccff",  # bright blue
+  place      = "#ffff00",  # yellow
+  city       = "#ff9933",  # orange
+  country    = "#ff3300",  # red-orange
+  unknown    = "#cc00ff"   # magenta
+)
+
+# Color factor for Leaflet
+pal <- colorFactor(palette = accuracy_colors, levels = accuracy_levels)
 buffer_lookup <- c(
   full_match = 0.001,
   street     = 0.005,
@@ -125,7 +141,6 @@ buffer_lookup <- c(
   country    = 0.05,
   unknown    = 0.02
 )
-pal <- colorFactor(palette = accuracy_colors, levels = accuracy_levels)
 
 # ---- Helper functions ----
 reset_inputs <- function(session) {
@@ -320,12 +335,21 @@ server <- function(input, output, session, username) {
       clearGroup("Geocoded Points") %>%
       clearControls() %>%
       addCircleMarkers(
-        data = pts, radius = 7, color = "black",
-        fillColor = ~pal(geocode_accuracy), fillOpacity = 0.7,
-        stroke = TRUE, weight = 1, group = "Geocoded Points",
+        data = pts, radius = 8, 
+        color = "black",
+        weight = 3,
+        fillColor = ~pal(geocode_accuracy), fillOpacity = 0.8,
+        stroke = TRUE, 
+        group = "Geocoded Points",
         popup = ~paste("Geocoded Address:", geocode_match_address, "<br>Accuracy:", geocode_accuracy)
       ) %>%
-      addLegend("bottomright", pal = pal, values = pts$geocode_accuracy, title = "Geocode Accuracy", opacity = 1) %>%
+      addLegend(
+        "bottomright",
+        colors = accuracy_colors,
+        labels = accuracy_labels,
+        title = "Geocode Accuracy:",
+        opacity = 1
+      ) %>%
       fitBounds(bounds$lng1, bounds$lat1, bounds$lng2, bounds$lat2)
     
     if (!is.null(corrected_point())) {
