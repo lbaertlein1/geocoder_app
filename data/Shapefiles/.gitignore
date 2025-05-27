@@ -1,2 +1,4 @@
 intervention_areas.Rds
 municipos.Rds
+intervention_buffer.Rds
+intervention_mask.Rds
