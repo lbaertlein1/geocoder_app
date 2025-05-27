@@ -290,9 +290,12 @@ server <- function(input, output, session, username) {
       updateSelectizeInput(session, "not_found", selected = vals$not_found)
 
       corrected_point(NULL)
-      if (!is.null(vals$geometry) && !any(is.na(st_coordinates(vals$geometry)))) {
-        corrected_point(vals$geometry)
-        add_corrected_marker(leafletProxy("map"), vals$geometry)
+      if (!is.null(vals$lat) && !is.null(vals$lng) &&
+          !is.na(vals$lat) && !is.na(vals$lng)) {
+        
+        point <- st_sf(geometry = st_sfc(st_point(c(vals$lng, vals$lat)), crs = 4326))
+        corrected_point(point)
+        add_corrected_marker(leafletProxy("map"), point)
       }
     }
   })
