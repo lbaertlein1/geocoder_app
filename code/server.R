@@ -207,6 +207,22 @@ reset_inputs <- function(session) {
   updateSelectizeInput(session, "location_type", selected = "")
 }
 
+clear_session_state <- function(session, corrected_point, reverse_address, selected_lat, selected_lng) {
+  corrected_point(NULL)
+  reverse_address("")
+  selected_lat("")
+  selected_lng("")
+  reset_inputs(session)
+  
+  leafletProxy("map") %>%
+    clearGroup("Corrected Point") %>%
+    clearControls()
+  
+  # Optional: clear selected row
+  # DT::selectRows("address_table", NULL)
+}
+
+
 add_corrected_marker <- function(proxy, data) {
   proxy %>%
     clearGroup("Corrected Point") %>%
@@ -336,7 +352,18 @@ server <- function(input, output, session, username) {
     sn_val <- selected_sn()
     if (is.null(sn_val)) return()
     
-    # Step 1: Refresh latest Dropbox data (do NOT assign it to reactiveValues)
+    #Step 1: Clear previous corrected point from map and inputs
+    corrected_point(NULL)
+    reverse_address("")
+    selected_lat("")
+    selected_lng("")
+    reset_inputs(session)
+    
+    leafletProxy("map") %>%
+      clearGroup("Corrected Point") %>%
+      clearControls()
+    
+    #Step 2: Sync confirmed data from Dropbox (local-only for current SN)
     latest_confirmed_df <- sync_confirmed_data()
     latest_confirmed_list <- lapply(seq_len(nrow(latest_confirmed_df)), function(i) {
       row <- latest_confirmed_df[i, ]
@@ -353,19 +380,10 @@ server <- function(input, output, session, username) {
     })
     names(latest_confirmed_list) <- latest_confirmed_df$sn
     
-    # Step 2: Load row-level values *just from refreshed list*
     vals <- latest_confirmed_list[[sn_val]]
     if (is.null(vals)) return()
     
-    corrected_point(NULL)
-    reverse_address("")
-    selected_lat("")
-    selected_lng("")
-    reset_inputs(session)
-    
-    leafletProxy("map") %>%
-      clearGroup("Corrected Point")
-    
+    #Step 3: Refill inputs and map if values exist
     reverse_address(vals$reverse_address %||% "")
     selected_lat(as.character(vals$lat))
     selected_lng(as.character(vals$lng))
@@ -453,17 +471,21 @@ server <- function(input, output, session, username) {
     add_corrected_marker(leafletProxy("map"), corrected_point())
   })
   
-  output$reverse_geocode_address <- renderText({ reverse_address() })
+  output$reverse_geocode_address <- renderText({
+    addr <- reverse_address()
+    if (is.null(addr) || addr == "") return("")
+    addr
+  })
   
   output$correct_lat <- renderUI({
     lat <- as.numeric(selected_lat())
-    if (is.na(lat)) return(HTML("<strong>Correct Lat:</strong>"))
+    if (is.na(lat) || lat == "") return(HTML("<strong>Correct Lat:</strong>"))
     HTML(paste0("<strong>Correct Lat:</strong> ", round(lat, 3)))
   })
   
   output$correct_lng <- renderUI({
     lng <- as.numeric(selected_lng())
-    if (is.na(lng)) return(HTML("<strong>Correct Lon:</strong>"))
+    if (is.na(lng)  || lng == "") return(HTML("<strong>Correct Lon:</strong>"))
     HTML(paste0("<strong>Correct Lon:</strong> ", round(lng, 3)))
   })
   
@@ -490,7 +512,7 @@ server <- function(input, output, session, username) {
     # Upload new confirmed record and merge on Dropbox
     upload_confirmed_data(new_row)
     
-    # ✅ Immediately sync latest data back into session and trigger table re-render
+    #Immediately sync latest data back into session and trigger table re-render
     latest_df <- sync_confirmed_data()
     
     confirmed_data$data <- lapply(seq_len(nrow(latest_df)), function(i) {
@@ -508,6 +530,15 @@ server <- function(input, output, session, username) {
     })
     names(confirmed_data$data) <- latest_df$sn
     completed_rows$done <- latest_df$sn
+    
+    clear_session_state(
+      session = session,
+      corrected_point = corrected_point,
+      reverse_address = reverse_address,
+      selected_lat = selected_lat,
+      selected_lng = selected_lng
+    )
+    
     
     showNotification("Address location successfully saved!", type = "message")
   })
@@ -589,6 +620,15 @@ server <- function(input, output, session, username) {
     })
     names(confirmed_data$data) <- latest_df$sn
     completed_rows$done <- latest_df$sn
+    
+    clear_session_state(
+      session = session,
+      corrected_point = corrected_point,
+      reverse_address = reverse_address,
+      selected_lat = selected_lat,
+      selected_lng = selected_lng
+    )
+    
     
     showNotification("Sync with database successful!", type = "message")
   })
