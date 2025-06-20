@@ -87,9 +87,11 @@ ui <- fluidPage(
         display: block;
     }
     
-    table.dataTable thead th {
-    font-size: 10px !important;
-    }
+    table.dataTable thead input {
+  font-size: 10px !important;
+  padding: 2px 4px !important;
+  height: auto !important;
+}
     
     .btn-lightgreen {
     background-color: #d4edda !important;
@@ -107,14 +109,14 @@ ui <- fluidPage(
   
   fluidRow(class = "no-gutters",
            column(
-             width = 8,
+             width = 7,
              div(
                class = "map-box",
                leafletOutput("map", height = "100%")
              )
            ),
            column(
-             width = 4,
+             width = 5,
              div(
                class = "twothirds-height",
                DTOutput("address_table")
@@ -175,6 +177,9 @@ ui <- fluidPage(
                fluidRow(
                  column(width = 6, downloadButton("download_data", "Completed Data", width="100%")),
                  column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
+               ),
+               fluidRow(
+                 column(width=6, actionButton("sync_data", "Sync Data", icon = icon("sync")))
                )
            )
   )

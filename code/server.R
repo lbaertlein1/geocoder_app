@@ -62,8 +62,51 @@ sync_confirmed_data <- function() {
   })
 }
 # Upload updated confirmed data to Dropbox
+# upload_confirmed_data <- function(updated_df) {
+#   # Refresh access token
+#   token_res <- httr::POST(
+#     url = "https://api.dropboxapi.com/oauth2/token",
+#     body = list(
+#       grant_type = "refresh_token",
+#       refresh_token = DROPBOX_REFRESH_TOKEN,
+#       client_id = DROPBOX_APP_KEY,
+#       client_secret = DROPBOX_APP_SECRET
+#     ),
+#     encode = "form"
+#   )
+#   token <- httr::content(token_res)$access_token
+#   if (is.null(token)) {
+#     message("Dropbox token refresh failed.")
+#     return()
+#   }
+#   
+#   # Write to temp file and upload
+#   temp_file <- tempfile(fileext = ".rds")
+#   saveRDS(updated_df, temp_file)
+#   
+#   tryCatch({
+#     httr::POST(
+#       DROPBOX_UPLOAD_URL,
+#       httr::add_headers(
+#         Authorization = paste("Bearer", token),
+#         `Content-Type` = "application/octet-stream",
+#         `Dropbox-API-Arg` = jsonlite::toJSON(
+#           list(
+#             path = DROPBOX_UPLOAD_PATH,
+#             mode = "overwrite",
+#             autorename = FALSE,
+#             mute = TRUE
+#           ), auto_unbox = TRUE
+#         )
+#       ),
+#       body = httr::upload_file(temp_file)
+#     )
+#   }, error = function(e) {
+#     message("Dropbox upload failed: ", e$message)
+#   })
+# }
 upload_confirmed_data <- function(updated_df) {
-  # Refresh access token
+  # Step 1: Refresh access token
   token_res <- httr::POST(
     url = "https://api.dropboxapi.com/oauth2/token",
     body = list(
@@ -80,9 +123,23 @@ upload_confirmed_data <- function(updated_df) {
     return()
   }
   
-  # Write to temp file and upload
+  # Step 2: Read existing data from Dropbox
+  temp_dl <- tempfile(fileext = ".rds")
+  existing_df <- tryCatch({
+    httr::GET(DROPBOX_DOWNLOAD_URL, httr::write_disk(temp_dl, overwrite = TRUE))
+    readRDS(temp_dl)
+  }, error = function(e) {
+    tibble()
+  })
+  
+  # Step 3: Merge existing and updated data by 'sn'
+  combined_df <- bind_rows(existing_df, updated_df) %>%
+    arrange(desc(timestamp)) %>%  # keep latest per sn
+    distinct(sn, .keep_all = TRUE)
+  
+  # Step 4: Upload merged data
   temp_file <- tempfile(fileext = ".rds")
-  saveRDS(updated_df, temp_file)
+  saveRDS(combined_df, temp_file)
   
   tryCatch({
     httr::POST(
@@ -105,7 +162,6 @@ upload_confirmed_data <- function(updated_df) {
     message("Dropbox upload failed: ", e$message)
   })
 }
-
 
 # ---- Shared palette + buffer size ----
 # Labels for legend and user display
@@ -188,8 +244,8 @@ render_address_table <- function(addresses, completed, confirmed) {
           list(targets = "_all", className = "dt-left wrap-text"),
           list(targets = 0, width = "50%"),
           list(targets = 1, width = "10%"),
-          list(targets = 2, width = "30%"),
-          list(targets = 3, width = "10%")
+          list(targets = 2, width = "20%"),
+          list(targets = 3, width = "20%")
         ),
         dom = 'tip'
       ),
@@ -276,42 +332,55 @@ server <- function(input, output, session, username) {
   })
   
   observeEvent(input$address_table_rows_selected, {
-    confirmed_df <- sync_confirmed_data()
+    req(input$address_table_rows_selected)
     sn_val <- selected_sn()
+    if (is.null(sn_val)) return()
     
-    # Clear state
+    # Step 1: Refresh latest Dropbox data (do NOT assign it to reactiveValues)
+    latest_confirmed_df <- sync_confirmed_data()
+    latest_confirmed_list <- lapply(seq_len(nrow(latest_confirmed_df)), function(i) {
+      row <- latest_confirmed_df[i, ]
+      list(
+        lat = row$latitude,
+        lng = row$longitude,
+        reverse_address = row$reverse_geocoded_address,
+        location_type = row$location_type,
+        notes = row$notes,
+        not_found = row$not_found,
+        timestamp = row$timestamp,
+        user = row$user
+      )
+    })
+    names(latest_confirmed_list) <- latest_confirmed_df$sn
+    
+    # Step 2: Load row-level values *just from refreshed list*
+    vals <- latest_confirmed_list[[sn_val]]
+    if (is.null(vals)) return()
+    
     corrected_point(NULL)
     reverse_address("")
     selected_lat("")
     selected_lng("")
     reset_inputs(session)
     
-    # clear previous marker
     leafletProxy("map") %>%
       clearGroup("Corrected Point")
     
-    sn_val <- selected_sn()
-    reset_inputs(session)
+    reverse_address(vals$reverse_address %||% "")
+    selected_lat(as.character(vals$lat))
+    selected_lng(as.character(vals$lng))
+    updateTextInput(session, "correct_lat", value = vals$lat)
+    updateTextInput(session, "correct_lng", value = vals$lng)
+    updateTextInput(session, "notes", value = vals$notes)
+    updateSelectizeInput(session, "location_type", selected = vals$location_type)
+    updateSelectizeInput(session, "not_found", selected = vals$not_found)
     
-    if (!is.null(sn_val) && sn_val %in% names(confirmed_data$data)) {
-      vals <- confirmed_data$data[[sn_val]]
-      reverse_address(vals$reverse_address %||% "")
-      selected_lat(as.character(vals$lat))
-      selected_lng(as.character(vals$lng))
-      updateTextInput(session, "correct_lat", value = vals$lat)
-      updateTextInput(session, "correct_lng", value = vals$lng)
-      updateTextInput(session, "notes", value = vals$notes)
-      updateSelectizeInput(session, "location_type", selected = vals$location_type)
-      updateSelectizeInput(session, "not_found", selected = vals$not_found)
-
-      corrected_point(NULL)
-      if (!is.null(vals$lat) && !is.null(vals$lng) &&
-          !is.na(vals$lat) && !is.na(vals$lng)) {
-        
-        point <- st_sf(geometry = st_sfc(st_point(c(vals$lng, vals$lat)), crs = 4326))
-        corrected_point(point)
-        add_corrected_marker(leafletProxy("map"), point)
-      }
+    if (!is.null(vals$lat) && !is.null(vals$lng) &&
+        !is.na(vals$lat) && !is.na(vals$lng)) {
+      
+      point <- st_sf(geometry = st_sfc(st_point(c(vals$lng, vals$lat)), crs = 4326))
+      corrected_point(point)
+      add_corrected_marker(leafletProxy("map"), point)
     }
   })
   
@@ -405,64 +474,57 @@ server <- function(input, output, session, username) {
     lat_val <- if (!is.null(selected_lat()) && !is.na(selected_lat())) as.numeric(selected_lat()) else NA_real_
     lng_val <- if (!is.null(selected_lng()) && !is.na(selected_lng())) as.numeric(selected_lng()) else NA_real_
     
-    confirmed_data$data[[sn_val]] <- list(
-      lat = lat_val,
-      lng = lng_val,
-      reverse_address = reverse_address(),
+    # Create a 1-row tibble with just the confirmed record
+    new_row <- tibble(
+      sn = sn_val,
+      latitude = lat_val,
+      longitude = lng_val,
+      reverse_geocoded_address = reverse_address(),
       location_type = input$location_type,
-      notes = input$notes,
       not_found = input$not_found,
+      notes = input$notes,
       timestamp = Sys.time(),
       user = username()
     )
     
-    completed_rows$done <- unique(c(completed_rows$done, sn_val))
+    # Upload new confirmed record and merge on Dropbox
+    upload_confirmed_data(new_row)
     
-    output$address_table <- renderDT({
-      render_address_table(addresses, completed_rows$done, confirmed_data$data)
-    })
+    # ✅ Immediately sync latest data back into session and trigger table re-render
+    latest_df <- sync_confirmed_data()
     
-    df <- lapply(names(confirmed_data$data), function(sn) {
-      vals <- confirmed_data$data[[sn]]
-      tibble(
-        sn = sn,
-        latitude = vals$lat %||% NA_real_,
-        longitude = vals$lng %||% NA_real_,
-        reverse_geocoded_address = vals$reverse_address %||% NA_character_,
-        location_type = vals$location_type %||% NA_character_,
-        not_found = vals$not_found %||% NA_character_,
-        notes = vals$notes %||% NA_character_,
-        timestamp = vals$timestamp %||% NA,
-        user = vals$user %||% NA,
+    confirmed_data$data <- lapply(seq_len(nrow(latest_df)), function(i) {
+      row <- latest_df[i, ]
+      list(
+        lat = row$latitude,
+        lng = row$longitude,
+        reverse_address = row$reverse_geocoded_address,
+        location_type = row$location_type,
+        notes = row$notes,
+        not_found = row$not_found,
+        timestamp = row$timestamp,
+        user = row$user
       )
-    }) %>% bind_rows()
+    })
+    names(confirmed_data$data) <- latest_df$sn
+    completed_rows$done <- latest_df$sn
     
-    upload_confirmed_data(df)
+    showNotification("Address location successfully saved!", type = "message")
   })
   
   output$download_data <- downloadHandler(
     filename = function() paste0("completed_geocoding_", Sys.Date(), ".xlsx"),
     content = function(file) {
-      df <- lapply(names(confirmed_data$data), function(sn) {
-        vals <- confirmed_data$data[[sn]]
-        tibble(
-          sn = sn,
-          latitude = vals$lat %||% NA_real_,
-          longitude = vals$lng %||% NA_real_,
-          reverse_geocoded_address = vals$reverse_address %||% NA_character_,
-          location_type = vals$location_type %||% NA_character_,
-          not_found = vals$not_found %||% NA_character_,
-          notes = vals$notes %||% NA_character_,
-          timestamp = vals$timestamp %||% NA,
-          user = vals$user %||% NA
-        )
-      }) %>% bind_rows()
+      #Always get latest data from Dropbox (not from session)
+      latest_df <- sync_confirmed_data()
       
-      if(nrow(df) == 0){
+      # If nothing was confirmed, fall back to raw address list
+      if (nrow(latest_df) == 0) {
         df <- addresses
-      } else{
-        df <- full_join(df, addresses, by = "sn")
+      } else {
+        df <- full_join(latest_df, addresses, by = "sn")
       }
+      
       writexl::write_xlsx(df, file)
     }
   )
@@ -507,5 +569,27 @@ server <- function(input, output, session, username) {
       leafletProxy("map") %>%
         clearGroup("Corrected Point")
     }
+  })
+  
+  observeEvent(input$sync_data, {
+    latest_df <- sync_confirmed_data()
+    
+    confirmed_data$data <- lapply(seq_len(nrow(latest_df)), function(i) {
+      row <- latest_df[i, ]
+      list(
+        lat = row$latitude,
+        lng = row$longitude,
+        reverse_address = row$reverse_geocoded_address,
+        location_type = row$location_type,
+        notes = row$notes,
+        not_found = row$not_found,
+        timestamp = row$timestamp,
+        user = row$user
+      )
+    })
+    names(confirmed_data$data) <- latest_df$sn
+    completed_rows$done <- latest_df$sn
+    
+    showNotification("Sync with database successful!", type = "message")
   })
 }
