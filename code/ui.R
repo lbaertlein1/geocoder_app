@@ -189,8 +189,9 @@ ui <- fluidPage(
                ),
                div(style = "margin-top: 2px;"),
                fluidRow(
-                 column(width = 6, downloadButton("download_data", "Completed Data", width="100%")),
-                 column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
+                 column(width = 6, downloadButton("download_data", "Completed Data", width="100%"))
+                 # ,
+                 # column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
                ),
                fluidRow(
                  column(
