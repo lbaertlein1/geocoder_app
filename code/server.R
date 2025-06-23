@@ -45,6 +45,7 @@ sync_confirmed_data <- function() {
           location_type = vals$location_type %||% NA_character_,
           not_found = vals$not_found %||% NA_character_,
           notes = vals$notes %||% NA_character_,
+          start_time = vals$start_time %||% NA,
           timestamp = vals$timestamp %||% NA,
           user = vals$user %||% NA,
           geometry = vals$geometry %||% NA
@@ -254,7 +255,10 @@ render_address_table <- function(addresses, completed, confirmed) {
       selection = "single",
       filter = "top",
       options = list(
-        pageLength = 25,
+        paging = FALSE,
+        scrollY = FALSE,           # Match your desired height
+        scrollCollapse = TRUE,
+        scroller = TRUE,
         autoWidth = TRUE,
         columnDefs = list(
           list(targets = "_all", className = "dt-left wrap-text"),
@@ -263,8 +267,20 @@ render_address_table <- function(addresses, completed, confirmed) {
           list(targets = 2, width = "20%"),
           list(targets = 3, width = "20%")
         ),
-        dom = 'tip'
+        dom = 'tip'  # include filtering and table only
       ),
+      # options = list(
+      #   pageLength = 25,
+      #   autoWidth = TRUE,
+      #   columnDefs = list(
+      #     list(targets = "_all", className = "dt-left wrap-text"),
+      #     list(targets = 0, width = "50%"),
+      #     list(targets = 1, width = "10%"),
+      #     list(targets = 2, width = "20%"),
+      #     list(targets = 3, width = "20%")
+      #   ),
+      #   dom = 'tip'
+      # ),
       escape = FALSE,
       rownames = FALSE,
       colnames = c("Address", "Done?", "Mun.", "ID")
@@ -284,6 +300,7 @@ server <- function(input, output, session, username) {
   reverse_address <- reactiveVal("")
   selected_lat    <- reactiveVal("")
   selected_lng    <- reactiveVal("")
+  start_timer <- reactiveVal(NULL)
   
   # ---- Load completed data from Dropbox on startup ----
   observe({
@@ -299,6 +316,7 @@ server <- function(input, output, session, username) {
           location_type = row$location_type,
           notes = row$notes,
           not_found = row$not_found,
+          start_time = row$start_time,
           timestamp = row$timestamp,
           user = row$user
         )
@@ -374,6 +392,7 @@ server <- function(input, output, session, username) {
         location_type = row$location_type,
         notes = row$notes,
         not_found = row$not_found,
+        start_time = row$start_time,
         timestamp = row$timestamp,
         user = row$user
       )
@@ -400,6 +419,11 @@ server <- function(input, output, session, username) {
       corrected_point(point)
       add_corrected_marker(leafletProxy("map"), point)
     }
+  })
+  
+  observeEvent(input$address_table_rows_selected, {
+    # Set timer only if a row was selected manually
+      start_timer(Sys.time())
   })
   
   observeEvent(selected_sn(), {
@@ -505,6 +529,7 @@ server <- function(input, output, session, username) {
       location_type = input$location_type,
       not_found = input$not_found,
       notes = input$notes,
+      start_time = start_timer(),
       timestamp = Sys.time(),
       user = username()
     )
@@ -524,6 +549,7 @@ server <- function(input, output, session, username) {
         location_type = row$location_type,
         notes = row$notes,
         not_found = row$not_found,
+        start_time = row$start_time,
         timestamp = row$timestamp,
         user = row$user
       )
@@ -614,6 +640,7 @@ server <- function(input, output, session, username) {
         location_type = row$location_type,
         notes = row$notes,
         not_found = row$not_found,
+        start_time = row$start_time,
         timestamp = row$timestamp,
         user = row$user
       )

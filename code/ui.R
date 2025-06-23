@@ -179,7 +179,15 @@ ui <- fluidPage(
                  column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
                ),
                fluidRow(
-                 column(width=6, actionButton("sync_data", "Sync Data", icon = icon("sync")))
+                 column(
+                   width = 6,
+                   actionButton("sync_data", "Sync Data", icon = icon("sync"), width = "100%")
+                 )
+                 # ,
+                 # column(
+                 #   width = 6,
+                 #   actionButton("validate_pt", "Validate a Completed Address", icon = icon("check-circle"), width = "100%")
+                 # )
                )
            )
   )
