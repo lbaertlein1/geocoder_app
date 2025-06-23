@@ -620,8 +620,8 @@ server <- function(input, output, session, username) {
     if (is_validation) {
       updated_row <- existing_df %>% filter(sn == sn_val)
       upload_confirmed_data(updated_row)
-      # print(paste("Validation saved for:", sn_val))
     } else {
+      updated_row <- updated_df %>% filter(sn == sn_val)
       upload_confirmed_data(updated_row)
     }
     
@@ -814,4 +814,17 @@ server <- function(input, output, session, username) {
       )
     }
   })
+  
+  # output$dashboard_button_ui <- renderUI({
+  #   if (username() %in% c("BypassUser", "Clary", "Carol")) {
+  #     actionButton("dashboard", "Dashboard", icon = icon("tachometer-alt"), width = "100%")
+  #   }
+  # })
+  # observeEvent(input$dashboard, {
+  #   updateTabsetPanel(session, "main_tabs", selected = "dashboard")
+  # })
+  # 
+  # observeEvent(input$return_to_geocoding, {
+  #   updateTabsetPanel(session, "main_tabs", selected = "geocoding")
+  # })
 }

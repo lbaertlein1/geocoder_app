@@ -113,7 +113,11 @@ ui <- fluidPage(
       crossorigin = "anonymous"
     )
   ),
-  
+  # tabsetPanel(
+  #   id = "main_tabs",
+  #   type="hidden",
+    
+    # tabPanel("Geocoding", value = "geocoding",
   fluidRow(class = "no-gutters",
            column(
              width = 7,
@@ -197,8 +201,27 @@ ui <- fluidPage(
                    width = 6,
                    actionButton("validate_pt", "Validate a Completed Address", icon = icon("check-circle"), class = "btn btn-warning", width = "100%")
                  )
+               ),
+               fluidRow(
+                 column(
+                   width = 6,
+                   uiOutput("dashboard_button_ui")
+                 )
                )
            )
   )
   
-))
+)
+
+
+)
+# ,
+
+# tabPanel("Dashboard", value = "dashboard",
+#          h3("Validation and Progress Dashboard"),
+#          # You can add more plots or DTs here
+#          actionButton("return_to_geocoding", "Return to Geocoding", icon = icon("arrow-left"))
+# )
+# )
+# )
+
