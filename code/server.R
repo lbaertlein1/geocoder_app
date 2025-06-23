@@ -23,6 +23,10 @@ DROPBOX_REFRESH_TOKEN <- dropbox_keys[["DROPBOX_REFRESH_TOKEN"]]
 DROPBOX_APP_KEY       <- dropbox_keys[["DROPBOX_APP_KEY"]]
 DROPBOX_APP_SECRET    <- dropbox_keys[["DROPBOX_APP_SECRET"]]
 
+#FOR TESTING
+# DROPBOX_UPLOAD_PATH <- "/Apps/apmis_dashboard_log_app/confirmed_data_testing.Rds"
+# DROPBOX_DOWNLOAD_URL <- "https://www.dropbox.com/scl/fi/r9bpb5gdxr5k2bjrp1ajs/confirmed_data_testing.Rds?rlkey=7g07zvs3ir783u2migzmlqsz9&st=u5ckcd8o&dl=1"
+
 # Load and merge confirmed data from Dropbox
 sync_confirmed_data <- function() {
   temp_file <- tempfile(fileext = ".rds")
@@ -48,7 +52,16 @@ sync_confirmed_data <- function() {
           start_time = vals$start_time %||% NA,
           timestamp = vals$timestamp %||% NA,
           user = vals$user %||% NA,
-          geometry = vals$geometry %||% NA
+          geometry = vals$geometry %||% NA,
+          
+          validation_latitude        = vals$validation_latitude %||% NA_real_,
+          validation_longitude       = vals$validation_longitude %||% NA_real_,
+          validation_timestamp       = vals$validation_timestamp %||% NA,
+          validation_user            = vals$validation_user %||% NA_character_,
+          validation_location_type   = vals$validation_location_type %||% NA_character_,
+          validation_not_found       = vals$validation_not_found %||% NA_character_,
+          validation_notes           = vals$validation_notes %||% NA_character_,
+          validation_start_time      = vals$validation_start_time %||% NA
         )
       }) %>% bind_rows()
       return(df)
@@ -134,9 +147,12 @@ upload_confirmed_data <- function(updated_df) {
   })
   
   # Step 3: Merge existing and updated data by 'sn'
-  combined_df <- bind_rows(existing_df, updated_df) %>%
-    arrange(desc(timestamp)) %>%  # keep latest per sn
-    distinct(sn, .keep_all = TRUE)
+  # combined_df <- bind_rows(existing_df, updated_df) %>%
+  #   arrange(desc(timestamp)) %>%  # keep latest per sn
+  #   distinct(sn, .keep_all = TRUE)
+  
+  combined_df <- dplyr::rows_upsert(existing_df, updated_df, by = "sn")
+  
   
   # Step 4: Upload merged data
   temp_file <- tempfile(fileext = ".rds")
@@ -301,6 +317,9 @@ server <- function(input, output, session, username) {
   selected_lat    <- reactiveVal("")
   selected_lng    <- reactiveVal("")
   start_timer <- reactiveVal(NULL)
+  validate_mode <- reactiveVal(FALSE)
+  validation_sn <- reactiveVal(NULL)
+  suppress_row_observer <- reactiveVal(FALSE)
   
   # ---- Load completed data from Dropbox on startup ----
   observe({
@@ -330,6 +349,9 @@ server <- function(input, output, session, username) {
   shinyjs::disable("confirm_point")
   
   selected_sn <- reactive({
+    if (validate_mode()) {
+      return(validation_sn())
+    }
     idx <- input$address_table_rows_selected
     if (length(idx) == 0) return(NULL)
     addresses[idx, "sn", drop = TRUE]
@@ -366,6 +388,16 @@ server <- function(input, output, session, username) {
   })
   
   observeEvent(input$address_table_rows_selected, {
+    
+    if (isTRUE(suppress_row_observer())) {
+      suppress_row_observer(FALSE)
+      return()
+    }
+    
+    # Exit validation mode if user manually selects a row
+    validate_mode(FALSE)
+    validation_sn(NULL)
+    
     req(input$address_table_rows_selected)
     sn_val <- selected_sn()
     if (is.null(sn_val)) return()
@@ -428,6 +460,8 @@ server <- function(input, output, session, username) {
   
   observeEvent(selected_sn(), {
     req(selected_sn())
+    req(!is.null(selected_sn()))
+    
     pts <- geocode_pts %>% filter(sn == selected_sn())
     req(nrow(pts) > 0)
     
@@ -520,39 +554,82 @@ server <- function(input, output, session, username) {
     lat_val <- if (!is.null(selected_lat()) && !is.na(selected_lat())) as.numeric(selected_lat()) else NA_real_
     lng_val <- if (!is.null(selected_lng()) && !is.na(selected_lng())) as.numeric(selected_lng()) else NA_real_
     
-    # Create a 1-row tibble with just the confirmed record
-    new_row <- tibble(
-      sn = sn_val,
-      latitude = lat_val,
-      longitude = lng_val,
-      reverse_geocoded_address = reverse_address(),
-      location_type = input$location_type,
-      not_found = input$not_found,
-      notes = input$notes,
-      start_time = start_timer(),
-      timestamp = Sys.time(),
-      user = username()
-    )
+    # Always get latest data
+    existing_df <- sync_confirmed_data()
     
-    # Upload new confirmed record and merge on Dropbox
-    upload_confirmed_data(new_row)
+    is_validation <- validate_mode()
+    now <- Sys.time()
     
-    #Immediately sync latest data back into session and trigger table re-render
+    if (is_validation) {
+      # First ensure all validation_* columns exist
+      required_validation_cols <- list(
+        validation_latitude         = NA_real_,
+        validation_longitude        = NA_real_,
+        validation_timestamp        = as.POSIXct(NA),
+        validation_user             = NA_character_,
+        validation_location_type    = NA_character_,
+        validation_not_found        = NA_character_,
+        validation_notes            = NA_character_,
+        validation_start_time       = as.POSIXct(NA)
+      )
+      
+      # Identify which are missing from the existing data
+      missing_cols <- setdiff(names(required_validation_cols), names(existing_df))
+      
+      # Add them safely with mutate
+      if (length(missing_cols) > 0) {
+        existing_df <- existing_df %>%
+          mutate(!!!required_validation_cols[missing_cols])
+      }
+      
+      # Validation mode: update matching row with new validation_* columns
+      existing_df <- existing_df %>%
+        mutate(
+          validation_latitude        = if_else(sn == sn_val, lat_val, validation_latitude),
+          validation_longitude       = if_else(sn == sn_val, lng_val, validation_longitude),
+          validation_timestamp       = if_else(sn == sn_val, now, validation_timestamp),
+          validation_user            = if_else(sn == sn_val, username(), validation_user),
+          validation_location_type   = if_else(sn == sn_val, input$location_type, validation_location_type),
+          validation_not_found       = if_else(sn == sn_val, input$not_found, validation_not_found),
+          validation_notes           = if_else(sn == sn_val, input$notes, validation_notes),
+          validation_start_time      = if_else(sn == sn_val, start_timer(), validation_start_time)
+        )
+      
+      updated_row <- existing_df %>% filter(sn == sn_val)
+    } else {
+      # Normal mode: either replace or add new confirmed row
+      new_row <- tibble(
+        sn = sn_val,
+        latitude = lat_val,
+        longitude = lng_val,
+        reverse_geocoded_address = reverse_address(),
+        location_type = input$location_type,
+        not_found = input$not_found,
+        notes = input$notes,
+        start_time = start_timer(),
+        timestamp = now,
+        user = username()
+      )
+      
+      updated_df <- bind_rows(existing_df, new_row) %>%
+        arrange(desc(timestamp)) %>%
+        distinct(sn, .keep_all = TRUE)
+    }
+    
+    # Upload updated dataset
+    if (is_validation) {
+      updated_row <- existing_df %>% filter(sn == sn_val)
+      upload_confirmed_data(updated_row)
+      # print(paste("Validation saved for:", sn_val))
+    } else {
+      upload_confirmed_data(updated_row)
+    }
+    
+    # Refresh local copy
     latest_df <- sync_confirmed_data()
-    
     confirmed_data$data <- lapply(seq_len(nrow(latest_df)), function(i) {
       row <- latest_df[i, ]
-      list(
-        lat = row$latitude,
-        lng = row$longitude,
-        reverse_address = row$reverse_geocoded_address,
-        location_type = row$location_type,
-        notes = row$notes,
-        not_found = row$not_found,
-        start_time = row$start_time,
-        timestamp = row$timestamp,
-        user = row$user
-      )
+      as.list(row)
     })
     names(confirmed_data$data) <- latest_df$sn
     completed_rows$done <- latest_df$sn
@@ -565,6 +642,19 @@ server <- function(input, output, session, username) {
       selected_lng = selected_lng
     )
     
+    # Clear DataTable selection
+    DT::dataTableProxy("address_table") %>% DT::selectRows(NULL)
+    
+    # Clear all map layers
+    leafletProxy("map") %>%
+      clearGroup("Corrected Point") %>%
+      clearGroup("Geocoded Points") %>%
+      clearControls()
+    
+    validate_mode(FALSE)
+    validation_sn(NULL)
+    shinyjs::enable("validate_pt")
+    DT::dataTableProxy("address_table") %>% DT::selectRows(NULL)
     
     showNotification("Address location successfully saved!", type = "message")
   })
@@ -658,5 +748,70 @@ server <- function(input, output, session, username) {
     
     
     showNotification("Sync with database successful!", type = "message")
+  })
+  
+  observeEvent(input$validate_pt, {
+    req(!validate_mode())
+    df <- sync_confirmed_data()
+    
+    # Only pick confirmed points with valid coordinates, from other users
+    valid_sn <- df %>%
+      filter(user != username()) %>%
+      filter(!is.na(timestamp)) %>% 
+      filter(is.na(validation_timestamp)) %>%
+      pull(sn)
+    
+    if (length(valid_sn) == 0) {
+      showNotification("No confirmed addresses available for validation.", type = "warning")
+      return()
+    }
+    
+    # Pick a random SN
+    selected <- sample(valid_sn, 1)
+    validation_sn(selected)
+    validate_mode(TRUE)
+    
+    # Clear previous values
+    reverse_address("")
+    selected_lat("")
+    selected_lng("")
+    corrected_point(NULL)
+    
+    updateTextInput(session, "correct_lat", value = "")
+    updateTextInput(session, "correct_lng", value = "")
+    updateTextInput(session, "notes", value = "")
+    updateSelectizeInput(session, "not_found", selected = "")
+    updateSelectizeInput(session, "location_type", selected = "")
+    
+    leafletProxy("map") %>%
+      clearGroup("Corrected Point") %>%
+      clearGroup("Geocoded Points") %>%
+      clearControls()
+    
+    suppress_row_observer(TRUE)
+    
+    # Simulate row selection in the table
+    idx <- which(addresses$sn == selected)
+    DT::dataTableProxy("address_table") %>% DT::selectRows(idx)
+    
+    showNotification("Validation address loaded. Please select a location carefully..", type = "message", duration = 2)
+    
+  })
+  
+  output$selected_address_label <- renderUI({
+    if (validate_mode()) {
+      tagList(
+        span(
+          HTML('<span style="color: #e69f00; font-weight: bold;">Validation:</span>'),
+          strong(" Original Address:")
+        ),
+        textOutput("selected_address")
+      )
+    } else {
+      tagList(
+        strong("Original Address:"),
+        textOutput("selected_address")
+      )
+    }
   })
 }

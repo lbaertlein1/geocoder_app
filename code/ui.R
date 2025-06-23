@@ -97,7 +97,14 @@ ui <- fluidPage(
     background-color: #d4edda !important;
     color: #155724 !important;
     border: 1px solid #c3e6cb;
-     }
+    }
+     
+    validate_pt:disabled {
+    background-color: #cccccc !important;
+    color: #666666 !important;
+    border-color: #cccccc !important;
+    }
+  
   ")),
     tags$link(
       rel = "stylesheet",
@@ -124,7 +131,10 @@ ui <- fluidPage(
              div(
                class = "onethird-height",
                fluidRow(
-                 column(width = 12, strong("Original Address:"), textOutput("selected_address"))
+                 column(
+                   width = 12,
+                   uiOutput("selected_address_label")
+                 )
                ),
                fluidRow(
                  column(width = 12, strong("Reverse-Geocoded Address:"), textOutput("reverse_geocode_address"))
@@ -182,12 +192,11 @@ ui <- fluidPage(
                  column(
                    width = 6,
                    actionButton("sync_data", "Sync Data", icon = icon("sync"), width = "100%")
+                 ),
+                 column(
+                   width = 6,
+                   actionButton("validate_pt", "Validate a Completed Address", icon = icon("check-circle"), class = "btn btn-warning", width = "100%")
                  )
-                 # ,
-                 # column(
-                 #   width = 6,
-                 #   actionButton("validate_pt", "Validate a Completed Address", icon = icon("check-circle"), width = "100%")
-                 # )
                )
            )
   )
