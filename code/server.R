@@ -366,6 +366,10 @@ server <- function(input, output, session, username) {
     req(selected_sn())
     addresses %>% filter(sn == selected_sn()) %>% pull(direccion_full)
   })
+  output$selected_mun <- renderText({
+    req(selected_sn())
+    addresses %>% filter(sn == selected_sn()) %>% pull(mun)
+  })
   
   output$map <- renderLeaflet({
     leaflet(options = leafletOptions(minZoom = 2, maxZoom = 19)) %>%
@@ -806,6 +810,7 @@ server <- function(input, output, session, username) {
           HTML('<span style="color: #e69f00; font-weight: bold;">Validation:</span>'),
           strong(" Original Address:")
         ),
+        textOutput("selected_mun"),
         textOutput("selected_address")
       )
     } else {
