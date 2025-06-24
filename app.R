@@ -10,6 +10,9 @@ library(leaflet.extras)
 library(httr)
 library(jsonlite)
 library(tibble)
+library(plotly)
+library(shinycssloaders)
+library(lubridate)
 
 
 # bypass_login <- TRUE
@@ -49,7 +52,6 @@ login_ui <- fluidPage(
       verbatimTextOutput("login_message")
   )
 )
-
 
 source("code/ui.R", local = TRUE)
 app_ui <- ui

@@ -113,11 +113,11 @@ ui <- fluidPage(
       crossorigin = "anonymous"
     )
   ),
-  # tabsetPanel(
-  #   id = "main_tabs",
-  #   type="hidden",
+  tabsetPanel(
+    id = "main_tabs",
+    type="hidden",
     
-    # tabPanel("Geocoding", value = "geocoding",
+    tabPanel("Geocoding", value = "geocoding",
   fluidRow(class = "no-gutters",
            column(
              width = 7,
@@ -189,11 +189,6 @@ ui <- fluidPage(
                ),
                div(style = "margin-top: 2px;"),
                fluidRow(
-                 column(width = 6, downloadButton("download_data", "Completed Data", width="100%"))
-                 # ,
-                 # column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
-               ),
-               fluidRow(
                  column(
                    width = 6,
                    actionButton("sync_data", "Sync Data", icon = icon("sync"), width = "100%")
@@ -202,8 +197,11 @@ ui <- fluidPage(
                    width = 6,
                    actionButton("validate_pt", "Validate a Completed Address", icon = icon("check-circle"), class = "btn btn-warning", width = "100%")
                  )
+                 # ,
+                 # column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
                ),
                fluidRow(
+                 column(width = 6, downloadButton("download_data", "Completed Data", width="100%")),
                  column(
                    width = 6,
                    uiOutput("dashboard_button_ui")
@@ -215,14 +213,72 @@ ui <- fluidPage(
 )
 
 
+),
+
+tabPanel("dashboard", value = "dashboard", 
+         fluidRow(
+           box(
+             status = "primary",
+             solidHeader = TRUE,
+             width = 4,
+             div(style = "margin-bottom: 10px;",
+                 withSpinner(uiOutput("card_completed"))
+             ),
+           ),
+           box(
+             status = "primary",
+             solidHeader = TRUE,
+             width = 4,
+             div(style = "margin-bottom: 10px;",
+                 withSpinner(uiOutput("card_validated"))
+             )
+           ),
+           box(
+             status = "primary",
+             solidHeader = TRUE,
+             width = 4,
+             div(style = "margin-bottom: 10px;",
+                 withSpinner(uiOutput("card_valid"))
+             )
+           )
+         ),
+         
+         fluidRow(
+           column(
+             width = 6,
+             div(
+               class = "map-box",
+               style = "height: 500px;",
+               leafletOutput("map_completed", height = "100%")
+             )
+           ),
+           column(
+             width = 3,
+             div(style = "margin-bottom: 10px;",
+                 withSpinner(plotlyOutput("bar_completed_by_status", height = "245px"))
+             ),
+             withSpinner(plotlyOutput("bar_completed_by_date", height = "245px"))
+           ),
+           column(
+             width = 3,
+             div(style = "margin-bottom: 10px;",
+                 withSpinner(plotlyOutput("boxplot_time_by_user", height = "245px"))
+             ),
+             withSpinner(plotlyOutput("boxplot_time_by_date", height = "245px"))
+           )
+         ),
+         
+         fluidRow(column(
+           12,
+           align = "center",
+           actionButton(
+             "return_to_geocoding",
+             "Return to Geocoding",
+             icon = icon("arrow-left"),
+             class = "btn btn-secondary"
+           )
+         )
 )
-# ,
-
-# tabPanel("Dashboard", value = "dashboard",
-#          h3("Validation and Progress Dashboard"),
-#          # You can add more plots or DTs here
-#          actionButton("return_to_geocoding", "Return to Geocoding", icon = icon("arrow-left"))
-# )
-# )
-# )
-
+)
+)
+)

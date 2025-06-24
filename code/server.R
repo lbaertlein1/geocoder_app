@@ -8,7 +8,6 @@ geocode_pts        <- readRDS("data/clean/addresses_geocode_pts.Rds")
 santa_ana_coords   <- c(lng = -89.604, lat = 13.982)
 
 
-
 # ---- Dropbox Sync Helpers ----
 # Import and convert to named list
 dropbox_keys <- rio::import("data/account_info.xlsx", which = "Dropbox") %>%
@@ -320,6 +319,8 @@ server <- function(input, output, session, username) {
   validate_mode <- reactiveVal(FALSE)
   validation_sn <- reactiveVal(NULL)
   suppress_row_observer <- reactiveVal(FALSE)
+  full_data <- reactiveVal(tibble())
+  selected_point <- reactiveVal(NULL)
   
   # ---- Load completed data from Dropbox on startup ----
   observe({
@@ -815,16 +816,429 @@ server <- function(input, output, session, username) {
     }
   })
   
-  # output$dashboard_button_ui <- renderUI({
-  #   if (username() %in% c("BypassUser", "Clary", "Carol")) {
-  #     actionButton("dashboard", "Dashboard", icon = icon("tachometer-alt"), width = "100%")
-  #   }
-  # })
-  # observeEvent(input$dashboard, {
-  #   updateTabsetPanel(session, "main_tabs", selected = "dashboard")
-  # })
-  # 
-  # observeEvent(input$return_to_geocoding, {
-  #   updateTabsetPanel(session, "main_tabs", selected = "geocoding")
-  # })
+  output$dashboard_button_ui <- renderUI({
+    if (username() %in% c("BypassUser", "Clary", "Carol")) {
+      actionButton("dashboard", "Dashboard", icon = icon("tachometer-alt"), width = "100%")
+    }
+  })
+  
+  observeEvent(input$dashboard, {
+    updateTabsetPanel(session, "main_tabs", selected = "dashboard")
+  })
+
+  observeEvent(input$return_to_geocoding, {
+    updateTabsetPanel(session, "main_tabs", selected = "geocoding")
+  })
+  
+  observeEvent(input$main_tabs, {
+    if (input$main_tabs == "dashboard") {
+      df <- sync_confirmed_data() %>%
+        filter(!(user %in% c("BypassUser", "Carol"))) %>%
+        full_join(addresses, by = "sn")
+      
+      if (!is.data.frame(df) || nrow(df) == 0) {
+        full_data(tibble())
+        return()
+      }
+      
+      valid_rows <- df %>%
+        filter(
+          !is.na(latitude), !is.na(longitude),
+          !is.na(validation_latitude), !is.na(validation_longitude)
+        )
+      
+      if (nrow(valid_rows) == 0) {
+        df$within_1km <- NA
+        df$in_agreement <- NA
+        df$valid <- NA
+        full_data(df)
+        return()
+      }
+      
+      original_pts <- st_as_sf(valid_rows, coords = c("longitude", "latitude"), crs = 4326, remove = FALSE)
+      validated_pts <- st_as_sf(valid_rows, coords = c("validation_longitude", "validation_latitude"), crs = 4326, remove=FALSE)
+      
+      planar_crs <- 32616  # Replace with appropriate UTM zone for your data
+      
+      original_pts_planar <- st_transform(original_pts, crs = planar_crs)
+      validated_pts_planar <- st_transform(validated_pts, crs = planar_crs)
+      intervention_areas_planar <- st_transform(intervention_areas, crs = planar_crs)
+      
+      original_in <- lengths(st_intersects(original_pts_planar, intervention_areas_planar)) > 0
+      validated_in <- lengths(st_intersects(validated_pts_planar, intervention_areas_planar)) > 0
+      
+      dist_m <- geosphere::distHaversine(
+        cbind(valid_rows$longitude, valid_rows$latitude),
+        cbind(valid_rows$validation_longitude, valid_rows$validation_latitude)
+      )
+      
+      within_1km <- dist_m <= 1000
+      in_agreement <- original_in == validated_in
+      
+      df$within_1km <- NA
+      df$in_agreement <- NA
+      df$within_1km[match(valid_rows$sn, df$sn)] <- within_1km
+      df$in_agreement[match(valid_rows$sn, df$sn)] <- in_agreement
+      
+      df <- df %>%
+        mutate(valid = case_when(
+          within_1km & in_agreement ~ 1,
+          !within_1km | !in_agreement ~ 0,
+          TRUE ~ NA_real_
+        ))
+      
+      full_data(df)
+    }
+  })
+  
+  total_addresses <- reactive({
+    nrow(addresses)
+  })
+  
+  total_completed <- reactive({
+    full_data() %>% filter(!is.na(timestamp)) %>% nrow()
+  })
+  
+  total_validated <- reactive({
+    full_data() %>% filter(!is.na(valid)) %>% nrow()
+  })
+  
+  total_valid <- reactive({
+    full_data() %>% filter(valid == 1) %>% nrow()
+  })
+  
+  output$card_completed <- renderUI({
+    pct <- round(total_completed() / total_addresses() * 100, 1)
+    div(
+      class = "well",
+      h4("Completed Addresses"),
+      span(
+        strong(paste0(pct, "%")),
+        " — ",
+        total_completed(),
+        "/",
+        total_addresses()
+      )
+    )
+  })
+  
+  output$card_validated <- renderUI({
+    completed <- total_completed()
+    validated <- total_validated()
+    pct <- if (completed > 0)
+      round(validated / completed * 100, 1)
+    else
+      0
+    div(
+      class = "well",
+      h4("Reviewed Addresses (of completed)"),
+      span(strong(paste0(pct, "%")), " — ", validated, "/", completed)
+    )
+  })
+  
+  output$card_valid <- renderUI({
+    validated <- total_validated()
+    valid <- total_valid()
+    pct <- if (validated > 0)
+      round(valid / validated * 100, 1)
+    else
+      0
+    div(
+      class = "well",
+      h4("Concurrent Addresses (of Reviewed)"),
+      span(strong(paste0(pct, "%")), " — ", valid, "/", validated)
+    )
+  })
+  
+  
+  output$map_completed <- renderLeaflet({
+    req(input$main_tabs == "dashboard")
+    
+    df <- full_data() %>%
+      filter(!is.na(longitude), !is.na(latitude)) %>%
+      st_as_sf(coords = c("longitude", "latitude"), crs = 4326, remove = FALSE)
+    
+    req(nrow(df) > 0)
+    
+    # Define readable status labels
+    df$status <- case_when(
+      df$valid == 1 ~ "Concurrent",
+      df$valid == 0 & df$within_1km == TRUE ~ "Inconcurrent - Int. Area Diff.",
+      df$valid == 0 & df$in_agreement == TRUE ~ "Inconcurrent - >1km Diff",
+      df$valid == 0 ~ "Inconcurrent - Both Conditions",
+      is.na(df$valid) ~ "Not Reviewed"
+    )
+    
+    # Define ordered factor and named color vector
+    status_levels <- c(
+      "Concurrent",
+      "Inconcurrent - Int. Area Diff.",
+      "Inconcurrent - >1km Diff",
+      "Inconcurrent - Both Conditions",
+      "Not Reviewed"
+    )
+    status_colors <- c(
+      "Concurrent"                     = "#377eb8",
+      "Inconcurrent - Int. Area Diff." = "#984ea3",
+      "Inconcurrent - >1km Diff"       = "#ff7f00",
+      "Inconcurrent - Both Conditions" = "#e41a1c",
+      "Not Reviewed"                   = "#636363"
+    )
+    
+    df$status <- factor(df$status, levels = status_levels)
+    
+    pal <- colorFactor(palette = status_colors, domain = names(status_colors))
+    
+    base <- leaflet(options = leafletOptions(minZoom = 2, maxZoom = 19)) %>%
+      addProviderTiles("OpenStreetMap") %>%
+      setView(lng = santa_ana_coords[["lng"]],
+              lat = santa_ana_coords[["lat"]],
+              zoom = 12) %>%
+      addPolygons(
+        data = intervention_mask,
+        fillColor = "grey",
+        fillOpacity = 0.2,
+        stroke = FALSE,
+        group = "Intervention Areas"
+      ) %>%
+      addPolygons(
+        data = intervention_areas,
+        color = "black",
+        weight = 1,
+        fill = FALSE,
+        group = "Intervention Areas"
+      )
+    
+    for (status in status_levels) {
+      subdf <- df %>%
+        filter(status == !!status) %>%
+        sf::st_drop_geometry()
+      
+      if (nrow(subdf) > 0) {
+        base <- base %>%
+          addCircleMarkers(
+            data = subdf,
+            lng = ~longitude,
+            lat = ~latitude,
+            fillColor = status_colors[[status]],
+            color = "black",          # Outline color
+            weight = 0.8,             # Thin outline
+            stroke = TRUE,            # Enable outline
+            radius = 5,
+            fillOpacity = 0.8,
+            label = ~paste0(sn, ": ", direccion_full),  
+            group = status
+          )
+      }
+    }
+    
+    # Add connecting line and validated point if selected
+    pt <- selected_point()
+    if (!is.null(pt)) {
+      base <- base %>%
+        addCircleMarkers(
+          lng = pt$validation_lng,
+          lat = pt$validation_lat,
+          color = "black",
+          fillColor = "white",
+          fillOpacity = 1,
+          radius = 4,
+          stroke = TRUE,
+          weight = 1.5,
+          label = "Validated Location",
+          group = "Validated Point"
+        ) %>%
+        addPolylines(
+          lng = c(pt$original_lng, pt$validation_lng),
+          lat = c(pt$original_lat, pt$validation_lat),
+          color = "black",
+          weight = 1,
+          group = "Validated Line"
+        )
+    }
+    
+    base <- base %>%
+      addLegend(
+        "bottomright",
+        colors = unname(status_colors),
+        labels = names(status_colors),
+        title = "Validation Status"
+      ) %>%
+      addLayersControl(
+        overlayGroups = status_levels,
+        options = layersControlOptions(collapsed = FALSE)
+      )
+    
+    base
+  })
+  
+  observeEvent(input$map_completed_marker_click, {
+    click <- input$map_completed_marker_click
+    if (is.null(click)) return()
+    
+    df <- full_data()
+    
+    matched <- df %>%
+      filter(abs(longitude - click$lng) < 1e-6,
+             abs(latitude - click$lat) < 1e-6) %>%
+      slice(1)
+    
+    leafletProxy("map_completed") %>%
+      clearGroup("validation_overlay")  # always clear existing
+    
+    if (nrow(matched) == 1 &&
+        !is.na(matched$validation_latitude) &&
+        !is.na(matched$validation_longitude)) {
+      
+      leafletProxy("map_completed") %>%
+        addCircleMarkers(
+          lng = matched$validation_longitude,
+          lat = matched$validation_latitude,
+          color = "black",
+          fillColor = "red",
+          fillOpacity = 1,
+          radius = 6,
+          stroke = TRUE,
+          weight = 2,
+          label = "Validated Location",
+          group = "validation_overlay"
+        ) %>%
+        addPolylines(
+          lng = c(matched$longitude, matched$validation_longitude),
+          lat = c(matched$latitude, matched$validation_latitude),
+          color = "black",
+          weight = 3,
+          group = "validation_overlay"
+        )
+    }
+  })
+  
+  output$bar_completed_by_status <- renderPlotly({
+    df <- full_data() %>%
+      filter(!is.na(longitude), !is.na(latitude)) %>%
+      mutate(
+        status = case_when(
+          valid == 1 ~ "Concurrent",
+          valid == 0 & within_1km == TRUE ~ "Int. Area Diff.",
+          valid == 0 & in_agreement == TRUE ~ ">1km Diff",
+          valid == 0 ~ "Both Conditions",
+          is.na(valid) ~ "Not Reviewed"
+        ),
+        status = factor(status, levels = c(
+          "Concurrent",
+          "Int. Area Diff.",
+          ">1km Diff",
+          "Both Conditions",
+          "Not Reviewed"
+        ))
+      )
+    
+    reviewed_df <- df %>%
+      filter(status != "Not Reviewed") %>%
+      count(status, name = "n")
+    
+    total_reviewed <- sum(reviewed_df$n)
+    reviewed_df <- reviewed_df %>%
+      mutate(
+        percent = round(n / total_reviewed * 100, 1),
+        label = paste0(percent, "% (", n, "/", total_reviewed, ")"),
+        color = c(
+          "Concurrent"       = "#377eb8",
+          "Int. Area Diff."  = "#984ea3",
+          ">1km Diff"        = "#ff7f00",
+          "Both Conditions"  = "#e41a1c"
+        )[status]
+      )
+    
+    plot_ly(
+      data = reviewed_df,
+      x = ~status,
+      y = ~percent,
+      type = "bar",
+      text = ~label,
+      hoverinfo = "text",
+      marker = list(color = ~color)
+    ) %>%
+      layout(
+        title = "Concurrence of Reviewed",
+        yaxis = list(title = "Percent of Reviewed (%)", range = c(0, 100)),
+        xaxis = list(title = "")
+      ) %>%
+      config(
+        displaylogo = FALSE,
+        modeBarButtons = list(list("toImage"))
+      )
+  })
+  
+  
+  output$boxplot_time_by_user <- renderPlotly({
+    df <- full_data() %>%
+      filter(!is.na(timestamp), !is.na(start_time)) %>%
+      mutate(time_secs = as.numeric(difftime(timestamp, start_time, units = "secs")))
+    
+    plot_ly(df,
+            x = ~ user,
+            y = ~ time_secs,
+            type = "box",
+            boxpoints = FALSE) %>%
+      layout(title = "Time per Record by Geocoder", yaxis = list(title = "Seconds")) %>%
+      plotly::config(displaylogo=FALSE,
+                     modeBarButtons = (list(list("toImage"))))
+  })
+  
+  output$bar_completed_by_date <- renderPlotly({
+    df <- full_data() %>%
+      filter(!is.na(timestamp)) %>%
+      mutate(
+        timestamp = timestamp - hours(6),
+        date = as.Date(timestamp)
+      ) %>%
+      count(date, name = "completed")
+    
+    plot_ly(df,
+            x = ~date,
+            y = ~completed,
+            type = "bar") %>%
+      layout(
+        title = "Completed Records by Date",
+        yaxis = list(title = "Total Completed"),
+        xaxis = list(title = "")
+      ) %>%
+      config(
+        displaylogo = FALSE,
+        modeBarButtons = list(list("toImage"))
+      )
+  })
+  
+  output$boxplot_time_by_date <- renderPlotly({
+    df <- full_data() %>%
+      filter(!is.na(timestamp), !is.na(start_time)) %>%
+      mutate(
+        timestamp = timestamp - hours(6),
+        start_time = start_time - hours(6),
+        date = as.Date(timestamp),
+        time_secs = as.numeric(difftime(timestamp, start_time, units = "secs"))
+      )
+    
+    plot_ly(df,
+            x = ~date,
+            y = ~time_secs,
+            type = "box",
+            boxpoints = FALSE) %>%
+      layout(
+        title = "Time per Record by Date",
+        yaxis = list(title = "Seconds"),
+        xaxis = list(title = "")
+      ) %>%
+      config(
+        displaylogo = FALSE,
+        modeBarButtons = list(list("toImage"))
+      )
+  })
+  
+  
+  
+  observeEvent(input$return_to_geocoding, {
+    updateTabsetPanel(session, inputId = "main_tabs", selected = "geocoding")
+  })
 }
