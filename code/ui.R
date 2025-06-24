@@ -270,7 +270,7 @@ tabPanel("dashboard", value = "dashboard",
              div(style = "margin-bottom: 10px;",
                  withSpinner(plotlyOutput("boxplot_time_by_user", height = "215px"))
              ),
-             withSpinner(plotlyOutput("boxplot_time_by_date", height = "215px"))
+             withSpinner(plotlyOutput("bar_completed_by_level", height = "215px"))
            )
          ),
          

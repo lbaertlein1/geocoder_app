@@ -1104,7 +1104,7 @@ server <- function(input, output, session, username) {
         "bottomright",
         colors = unname(status_colors),
         labels = names(status_colors),
-        title = "Validation Status"
+        title = NULL
       ) %>%
       addLayersControl(
         overlayGroups = status_levels,
@@ -1199,12 +1199,80 @@ server <- function(input, output, session, username) {
       type = "bar",
       text = ~label,
       hoverinfo = "text",
-      marker = list(color = ~color)
+      marker = list(
+        color = ~color,
+        line = list(color = "black", width = 1)  # Black outline
+      )
     ) %>%
       layout(
-        title = "Concurrence of Reviewed",
-        yaxis = list(title = "Percent of Reviewed (%)", range = c(0, 100)),
-        xaxis = list(title = "")
+        title = list(text = "Concurrence of Reviewed:", font = list(size = 10)),
+        yaxis = list(
+          title = list(text = "% of Reviewed", font = list(size = 8)),
+          tickfont = list(size = 8),
+          range = c(0, 100)
+        ),
+        xaxis = list(
+          title = "",
+          tickfont = list(size = 8)
+        )
+      ) %>%
+      config(
+        displaylogo = FALSE,
+        modeBarButtons = list(list("toImage"))
+      )
+  })
+  
+  output$bar_completed_by_level <- renderPlotly({
+    df <- full_data() %>%
+      filter(!is.na(timestamp)) %>%
+      mutate(location_type = case_when(!is.na(location_type) & location_type != "" ~ location_type,
+                                       !is.na(not_found) ~ "Not Found")) %>%
+      count(location_type, name = "n")
+      
+    total <- sum(df$n)
+    
+    # Define color map
+    color_map <- c(
+      "Household" = "#253494",
+      "Multi-House Complex" = "#2c7fb8",
+      "Street" = "#41b6c4",
+      "Neighborhood" = "#7fcdbb",
+      "City" = "#c7e9b4",
+      "Other" = "#ffffcc",
+      "Not Found" = "#de2d26"
+    )
+    
+    df <- df %>%
+      mutate(
+        percent = round(n / total * 100, 1),
+        label = paste0(percent, "% (", n, "/", total, ")"),
+        color = color_map[location_type],
+        location_type = factor(location_type, levels = names(color_map))
+      )
+    
+    plot_ly(
+      data = df,
+      x = ~location_type,
+      y = ~percent,
+      type = "bar",
+      text = ~label,
+      hoverinfo = "text",
+      marker = list(
+        color = ~color,
+        line = list(color = "black", width = 1)  # Black outline
+      )
+    ) %>%
+     layout(
+        title = list(text = "Location Type:", font = list(size = 10)),
+        yaxis = list(
+          title = list(text = "% of Addresses", font = list(size = 8)),
+          tickfont = list(size = 8),
+          range = c(0, 100)
+        ),
+        xaxis = list(
+          title = "",
+          tickfont = list(size = 8)
+        )
       ) %>%
       config(
         displaylogo = FALSE,
@@ -1216,17 +1284,44 @@ server <- function(input, output, session, username) {
   output$boxplot_time_by_user <- renderPlotly({
     df <- full_data() %>%
       filter(!is.na(timestamp), !is.na(start_time)) %>%
-      mutate(time_secs = as.numeric(difftime(timestamp, start_time, units = "secs")))
+      mutate(time_secs = as.numeric(difftime(timestamp, start_time, units = "secs"))) %>%
+      group_by(user) %>%
+      summarise(median_time = median(time_secs, na.rm = TRUE)) %>%
+      ungroup()
     
-    plot_ly(df,
-            x = ~ user,
-            y = ~ time_secs,
-            type = "box",
-            boxpoints = FALSE) %>%
-      layout(title = "Time per Record by Geocoder", yaxis = list(title = "Seconds")) %>%
-      plotly::config(displaylogo=FALSE,
-                     modeBarButtons = (list(list("toImage"))))
+    ymax <- max(df$median_time, na.rm = TRUE) * 1.1  # Add 10% buffer
+    
+    plot_ly(
+      data = df,
+      x = ~user,
+      y = ~median_time,
+      type = "bar",
+      text = ~round(median_time),
+      textposition = "outside",
+      textfont = list(size = 8),
+      marker = list(
+        line = list(color = "black", width = 1)
+      )
+    ) %>%
+      layout(
+        title = list(text = "Median Time per Address", font = list(size = 10)),
+        yaxis = list(
+          title = list(text = "Seconds", font = list(size = 8)),
+          tickfont = list(size = 8),
+          range = c(0, ymax)
+        ),
+        xaxis = list(
+          title = "",
+          tickfont = list(size = 8)
+        ),
+        uniformtext = list(minsize = 8, mode = "show")
+      ) %>%
+      config(
+        displaylogo = FALSE,
+        modeBarButtons = list(list("toImage"))
+      )
   })
+  
   
   output$bar_completed_by_date <- renderPlotly({
     df <- full_data() %>%
@@ -1237,48 +1332,38 @@ server <- function(input, output, session, username) {
       ) %>%
       count(date, name = "completed")
     
-    plot_ly(df,
-            x = ~date,
-            y = ~completed,
-            type = "bar") %>%
-      layout(
-        title = "Completed Records by Date",
-        yaxis = list(title = "Total Completed"),
-        xaxis = list(title = "")
-      ) %>%
-      config(
-        displaylogo = FALSE,
-        modeBarButtons = list(list("toImage"))
-      )
-  })
-  
-  output$boxplot_time_by_date <- renderPlotly({
-    df <- full_data() %>%
-      filter(!is.na(timestamp), !is.na(start_time)) %>%
-      mutate(
-        timestamp = timestamp - hours(6),
-        start_time = start_time - hours(6),
-        date = as.Date(timestamp),
-        time_secs = as.numeric(difftime(timestamp, start_time, units = "secs"))
-      )
+    ymax <- max(df$completed, na.rm = TRUE) * 1.1  # Add 10% buffer for label space
     
-    plot_ly(df,
-            x = ~date,
-            y = ~time_secs,
-            type = "box",
-            boxpoints = FALSE) %>%
+    plot_ly(
+      data = df,
+      x = ~date,
+      y = ~completed,
+      type = "bar",
+      text = ~completed,
+      textposition = "outside",
+      textfont = list(size = 8),
+      marker = list(
+        line = list(color = "black", width = 1)
+      )
+    ) %>%
       layout(
-        title = "Time per Record by Date",
-        yaxis = list(title = "Seconds"),
-        xaxis = list(title = "")
+        title = list(text = "Completed Records by Date", font = list(size = 10)),
+        yaxis = list(
+          title = list(text = "Total Completed", font = list(size = 8)),
+          tickfont = list(size = 8),
+          range = c(0, ymax)
+        ),
+        xaxis = list(
+          title = "",
+          tickfont = list(size = 8)
+        ),
+        uniformtext = list(minsize = 8, mode = "show")
       ) %>%
       config(
         displaylogo = FALSE,
         modeBarButtons = list(list("toImage"))
       )
   })
-  
-  
   
   observeEvent(input$return_to_geocoding, {
     updateTabsetPanel(session, inputId = "main_tabs", selected = "geocoding")
