@@ -950,6 +950,48 @@ server <- function(input, output, session, username) {
     )
   })
   
+  output$card_median_distance <- renderUI({
+    df <- full_data() %>%
+      filter(
+        !is.na(longitude), !is.na(latitude),
+        !is.na(validation_longitude), !is.na(validation_latitude)
+      )
+    
+    if (nrow(df) == 0) return(NULL)
+    
+    distances <- geosphere::distHaversine(
+      matrix(c(df$longitude, df$latitude), ncol = 2),
+      matrix(c(df$validation_longitude, df$validation_latitude), ncol = 2)
+    )
+    
+    median_dist <- median(distances, na.rm = TRUE)
+    
+    div(
+      class = "well",
+      style = "height: 45px; padding: 4px 8px; font-size: 12px; line-height: 1.2;",
+      div("Median Distance from Original to Review Pt", style = "font-weight: bold;"),
+      div(paste0(round(median_dist/1000, 1), " km"))
+    )
+  })
+  
+  
+  output$card_median_time <- renderUI({
+    df <- full_data() %>%
+      filter(!is.na(start_time), !is.na(timestamp))
+    
+    if (nrow(df) == 0) return(NULL)
+    
+    median_secs <- median(as.numeric(difftime(df$timestamp, df$start_time, units = "secs")), na.rm = TRUE)
+    
+    div(
+      class = "well",
+      style = "height: 45px; padding: 4px 8px; font-size: 12px; line-height: 1.2;",
+      div("Median Time Spent per Address", style = "font-weight: bold;"),
+      div(paste0(round(median_secs), " seconds"))
+    )
+  })
+  
+  
   
   output$map_completed <- renderLeaflet({
     req(input$main_tabs == "dashboard")

@@ -255,16 +255,22 @@ tabPanel("dashboard", value = "dashboard",
            column(
              width = 3,
              div(style = "margin-bottom: 10px;",
-                 withSpinner(plotlyOutput("bar_completed_by_status", height = "245px"))
+                 withSpinner(uiOutput("card_median_distance", height = "45px"))
              ),
-             withSpinner(plotlyOutput("bar_completed_by_date", height = "245px"))
+             div(style = "margin-bottom: 10px;",
+                 withSpinner(plotlyOutput("bar_completed_by_status", height = "215px"))
+             ),
+             withSpinner(plotlyOutput("bar_completed_by_date", height = "215px"))
            ),
            column(
              width = 3,
              div(style = "margin-bottom: 10px;",
-                 withSpinner(plotlyOutput("boxplot_time_by_user", height = "245px"))
+                 withSpinner(uiOutput("card_median_time", height = "45px"))  # Intentional duplicate for layout
              ),
-             withSpinner(plotlyOutput("boxplot_time_by_date", height = "245px"))
+             div(style = "margin-bottom: 10px;",
+                 withSpinner(plotlyOutput("boxplot_time_by_user", height = "215px"))
+             ),
+             withSpinner(plotlyOutput("boxplot_time_by_date", height = "215px"))
            )
          ),
          
