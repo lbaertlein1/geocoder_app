@@ -46,6 +46,7 @@ sync_confirmed_data <- function() {
           longitude = vals$lng %||% NA_real_,
           reverse_geocoded_address = vals$reverse_address %||% NA_character_,
           location_type = vals$location_type %||% NA_character_,
+          precision_meters = vals$precision_meters %||% NA_character_,
           not_found = vals$not_found %||% NA_character_,
           notes = vals$notes %||% NA_character_,
           start_time = vals$start_time %||% NA,
@@ -58,6 +59,7 @@ sync_confirmed_data <- function() {
           validation_timestamp       = vals$validation_timestamp %||% NA,
           validation_user            = vals$validation_user %||% NA_character_,
           validation_location_type   = vals$validation_location_type %||% NA_character_,
+          validation_precision_meters       = vals$precision_meters %||% NA_character_,
           validation_not_found       = vals$validation_not_found %||% NA_character_,
           validation_notes           = vals$validation_notes %||% NA_character_,
           validation_start_time      = vals$validation_start_time %||% NA
@@ -145,15 +147,40 @@ upload_confirmed_data <- function(updated_df) {
     tibble()
   })
   
-  # Step 3: Merge existing and updated data by 'sn'
-  # combined_df <- bind_rows(existing_df, updated_df) %>%
-  #   arrange(desc(timestamp)) %>%  # keep latest per sn
-  #   distinct(sn, .keep_all = TRUE)
+  # Step 3: Harmonize columns between existing and updated data
+  all_cols <- union(names(existing_df), names(updated_df))
   
+  # Add missing columns
+  missing_in_existing <- setdiff(all_cols, names(existing_df))
+  if (length(missing_in_existing) > 0) {
+    existing_df <- dplyr::mutate(existing_df, !!!setNames(rep(list(NA), length(missing_in_existing)), missing_in_existing))
+  }
+  
+  missing_in_updated <- setdiff(all_cols, names(updated_df))
+  if (length(missing_in_updated) > 0) {
+    updated_df <- dplyr::mutate(updated_df, !!!setNames(rep(list(NA), length(missing_in_updated)), missing_in_updated))
+  }
+  
+  # Reorder columns to match
+  existing_df <- existing_df[, all_cols]
+  updated_df <- updated_df[, all_cols]
+  
+  # Coerce types to match existing_df
+  for (col in all_cols) {
+    type_existing <- typeof(existing_df[[col]])
+    type_updated <- typeof(updated_df[[col]])
+    
+    if (type_existing != type_updated) {
+      # Coerce both to character if they differ
+      existing_df[[col]] <- as.character(existing_df[[col]])
+      updated_df[[col]] <- as.character(updated_df[[col]])
+    }
+  }
+  
+  # Step 4: Merge using rows_upsert
   combined_df <- dplyr::rows_upsert(existing_df, updated_df, by = "sn")
-  
-  
-  # Step 4: Upload merged data
+
+  # Step 5: Upload merged data
   temp_file <- tempfile(fileext = ".rds")
   saveRDS(combined_df, temp_file)
   
@@ -221,6 +248,7 @@ reset_inputs <- function(session) {
   updateTextInput(session, "notes", value = "")
   updateSelectizeInput(session, "not_found", selected="")
   updateSelectizeInput(session, "location_type", selected = "")
+  updateSelectizeInput(session, "precision_meters", selected="")
 }
 
 clear_session_state <- function(session, corrected_point, reverse_address, selected_lat, selected_lng) {
@@ -232,6 +260,7 @@ clear_session_state <- function(session, corrected_point, reverse_address, selec
   
   leafletProxy("map") %>%
     clearGroup("Corrected Point") %>%
+    clearGroup("buffers") %>%
     clearControls()
   
   # Optional: clear selected row
@@ -335,6 +364,7 @@ server <- function(input, output, session, username) {
           reverse_address = row$reverse_geocoded_address,
           location_type = row$location_type,
           notes = row$notes,
+          precision_meters = row$precision_meters,
           not_found = row$not_found,
           start_time = row$start_time,
           timestamp = row$timestamp,
@@ -416,6 +446,7 @@ server <- function(input, output, session, username) {
     
     leafletProxy("map") %>%
       clearGroup("Corrected Point") %>%
+      clearGroup("buffers") %>%
       clearControls()
     
     #Step 2: Sync confirmed data from Dropbox (local-only for current SN)
@@ -428,6 +459,7 @@ server <- function(input, output, session, username) {
         reverse_address = row$reverse_geocoded_address,
         location_type = row$location_type,
         notes = row$notes,
+        precision_meters = row$precision_meters,
         not_found = row$not_found,
         start_time = row$start_time,
         timestamp = row$timestamp,
@@ -448,6 +480,7 @@ server <- function(input, output, session, username) {
     updateTextInput(session, "notes", value = vals$notes)
     updateSelectizeInput(session, "location_type", selected = vals$location_type)
     updateSelectizeInput(session, "not_found", selected = vals$not_found)
+    updateSelectizeInput(session, "precision_meters", selected = vals$precision_meters)
     
     if (!is.null(vals$lat) && !is.null(vals$lng) &&
         !is.na(vals$lat) && !is.na(vals$lng)) {
@@ -482,6 +515,7 @@ server <- function(input, output, session, username) {
     proxy <- leafletProxy("map") %>%
       clearSearchOSM() %>%
       clearGroup("Corrected Point") %>%
+      clearGroup("buffers") %>%
       clearGroup("Geocoded Points") %>%
       clearControls() %>%
       addCircleMarkers(
@@ -507,32 +541,67 @@ server <- function(input, output, session, username) {
     }
   })
   
-  observeEvent(input$map_click, {
-    click <- input$map_click
-    req(click)
-    
-    # Clear 'Address Not Found' dropdown when a point is selected
-    updateSelectizeInput(session, "not_found", selected = "")
-    
-    # Set new corrected point
-    corrected_point(
-      st_sf(geometry = st_sfc(st_point(c(click$lng, click$lat)), crs = 4326))
-    )
-    
-    selected_lat(as.character(click$lat))
-    selected_lng(as.character(click$lng))
-    
-    # Reverse geocode
-    url <- sprintf("https://nominatim.openstreetmap.org/reverse?format=json&lat=%s&lon=%s&zoom=18&addressdetails=1", click$lat, click$lng)
-    res <- httr::GET(url, user_agent("R Shiny App"))
-    rev_data <- jsonlite::fromJSON(httr::content(res, "text", encoding = "UTF-8"), flatten = TRUE)
-    reverse_address(rev_data$display_name %||% "Address not found")
-    
-    updateTextInput(session, "correct_lat", value = as.character(click$lat))
-    updateTextInput(session, "correct_lng", value = as.character(click$lng))
-    
-    add_corrected_marker(leafletProxy("map"), corrected_point())
-  })
+    observeEvent(input$map_click, {
+      click <- input$map_click
+      req(click)
+      
+      updateSelectizeInput(session, "not_found", selected = "")
+      
+      # Create corrected point
+      point <- st_sf(geometry = st_sfc(st_point(c(click$lng, click$lat)), crs = 4326))
+      corrected_point(point)
+      
+      selected_lat(as.character(click$lat))
+      selected_lng(as.character(click$lng))
+      
+      # Reverse geocode
+      url <- sprintf("https://nominatim.openstreetmap.org/reverse?format=json&lat=%s&lon=%s&zoom=18&addressdetails=1", click$lat, click$lng)
+      res <- httr::GET(url, user_agent("R Shiny App"))
+      rev_data <- jsonlite::fromJSON(httr::content(res, "text", encoding = "UTF-8"), flatten = TRUE)
+      reverse_address(rev_data$display_name %||% "Address not found")
+      
+      updateTextInput(session, "correct_lat", value = as.character(click$lat))
+      updateTextInput(session, "correct_lng", value = as.character(click$lng))
+      
+      # Define distances and labels
+      distances <- c(100, 250, 500, 1000)
+      labels <- paste0(distances, "m")
+      
+      # Create projected point
+      pt_proj <- st_transform(point, 3857)
+      
+      # Create buffer polygons
+      buffers <- lapply(distances, function(d) st_buffer(pt_proj, d))
+      
+      # Create label points due east
+      label_points <- lapply(seq_along(distances), function(i) {
+        coords <- st_coordinates(pt_proj)
+        label_pt <- st_point(c(coords[1] + distances[i], coords[2]))  # due east
+        st_sf(label = labels[i], geometry = st_sfc(label_pt, crs = 3857))
+      })
+      
+      # Transform to WGS84
+      buffers_wgs84 <- lapply(buffers, \(b) st_transform(b, 4326))
+      label_sf <- do.call(rbind, lapply(label_points, \(p) st_transform(p, 4326)))
+      
+      # Update map
+      leafletProxy("map") %>%
+        clearGroup("buffers") %>%
+        addMarkers(data = point, group = "buffers") %>%
+        addPolygons(data = buffers_wgs84[[1]], group = "buffers", fillOpacity = 0.2, weight = 2, color = "#a50f15") %>%
+        addPolygons(data = buffers_wgs84[[2]], group = "buffers", fillOpacity = 0.2, weight = 2, color = "#de2d26") %>%
+        addPolygons(data = buffers_wgs84[[3]], group = "buffers", fillOpacity = 0.2, weight = 2, color = "#fb6a4a") %>%
+        addPolygons(data = buffers_wgs84[[4]], group = "buffers", fillOpacity = 0.2, weight = 2, color = "#fc9272") %>%
+        addLabelOnlyMarkers(
+          data = label_sf,
+          label = ~label,
+          labelOptions = labelOptions(noHide = TRUE, direction = "left", textOnly = TRUE,
+                                      style=list("font-weight" = "bold")),
+          group = "buffers"
+        )
+      
+      add_corrected_marker(leafletProxy("map"), point)
+    })
   
   output$reverse_geocode_address <- renderText({
     addr <- reverse_address()
@@ -573,6 +642,7 @@ server <- function(input, output, session, username) {
         validation_timestamp        = as.POSIXct(NA),
         validation_user             = NA_character_,
         validation_location_type    = NA_character_,
+        validation_precision_meters        = NA_character_,
         validation_not_found        = NA_character_,
         validation_notes            = NA_character_,
         validation_start_time       = as.POSIXct(NA)
@@ -595,6 +665,7 @@ server <- function(input, output, session, username) {
           validation_timestamp       = if_else(sn == sn_val, now, validation_timestamp),
           validation_user            = if_else(sn == sn_val, username(), validation_user),
           validation_location_type   = if_else(sn == sn_val, input$location_type, validation_location_type),
+          validation_precision_meters       = if_else(sn == sn_val, input$precision_meters, precision_meters),
           validation_not_found       = if_else(sn == sn_val, input$not_found, validation_not_found),
           validation_notes           = if_else(sn == sn_val, input$notes, validation_notes),
           validation_start_time      = if_else(sn == sn_val, start_timer(), validation_start_time)
@@ -609,6 +680,7 @@ server <- function(input, output, session, username) {
         longitude = lng_val,
         reverse_geocoded_address = reverse_address(),
         location_type = input$location_type,
+        precision_meters = input$precision_meters,
         not_found = input$not_found,
         notes = input$notes,
         start_time = start_timer(),
@@ -653,6 +725,7 @@ server <- function(input, output, session, username) {
     # Clear all map layers
     leafletProxy("map") %>%
       clearGroup("Corrected Point") %>%
+      clearGroup("buffers") %>%
       clearGroup("Geocoded Points") %>%
       clearControls()
     
@@ -719,7 +792,8 @@ server <- function(input, output, session, username) {
       updateTextInput(session, "correct_lng", value = "")
       
       leafletProxy("map") %>%
-        clearGroup("Corrected Point")
+        clearGroup("Corrected Point") %>%
+        clearGroup("buffers")
     }
   })
   
@@ -734,6 +808,7 @@ server <- function(input, output, session, username) {
         reverse_address = row$reverse_geocoded_address,
         location_type = row$location_type,
         notes = row$notes,
+        precision_meters = row$precision_meters,
         not_found = row$not_found,
         start_time = row$start_time,
         timestamp = row$timestamp,
@@ -787,9 +862,11 @@ server <- function(input, output, session, username) {
     updateTextInput(session, "notes", value = "")
     updateSelectizeInput(session, "not_found", selected = "")
     updateSelectizeInput(session, "location_type", selected = "")
+    updateSelectizeInput(session, "precision_meters", selected = "")
     
     leafletProxy("map") %>%
       clearGroup("Corrected Point") %>%
+      clearGroup("buffers") %>%
       clearGroup("Geocoded Points") %>%
       clearControls()
     

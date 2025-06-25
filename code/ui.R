@@ -147,10 +147,27 @@ ui <- fluidPage(
                  column(width = 6, uiOutput("correct_lat")),
                  column(width = 6, uiOutput("correct_lng"))
                ),
-               div(style = "margin-top: 2px;"),
+               tags$head(
+                 tags$style(HTML("
+    .tight-columns .col-sm-4:first-child {
+      padding-left: 15px;   /* Keep default left padding */
+      padding-right: 0px;
+    }
+    .tight-columns .col-sm-4:nth-child(2) {
+      padding-left: 0px;
+      padding-right: 0px;
+    }
+    .tight-columns .col-sm-4:last-child {
+      padding-left: 0px;
+      padding-right: 15px;  /* Keep default right padding */
+    }
+  "))
+               ),
+               
                fluidRow(
+                 class = "tight-columns",
                  column(
-                   width = 6,
+                   width = 4,
                    selectizeInput(
                      "location_type",
                      label = NULL,
@@ -160,9 +177,28 @@ ui <- fluidPage(
                        dropdownParent = 'body'
                      )
                    )
-                  ),
+                 ),
                  column(
-                   width = 6,
+                   width = 4,
+                   selectizeInput(
+                     "precision_meters", 
+                     label = NULL,
+                     choices = c(
+                       "",
+                       "<100m",
+                       "<250m",
+                       "<500m",
+                       "<1000m",
+                       ">1000m"
+                     ),
+                     options = list(
+                       placeholder = "Estimate Precision:",
+                       dropdownParent = 'body'
+                     )
+                   )
+                 ),
+                 column(
+                   width = 4,
                    selectizeInput(
                      "not_found", 
                      label = NULL,
@@ -182,7 +218,10 @@ ui <- fluidPage(
                fluidRow(
                  column(
                    width = 6,
-                   textInput("notes", label = NULL, placeholder = "Notes:")
+                   div(
+                     style = "width: 100%;",
+                     textInput("notes", label = NULL, placeholder = "Notes:", width = "100%")
+                   )
                  ),
                  column(width = 6, actionButton("confirm_point", "Confirm Selected Location", width="100%", class = "btn-lightgreen")),
                  
