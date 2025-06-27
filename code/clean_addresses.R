@@ -3,7 +3,7 @@ pacman::p_load(tidyverse)
 
 #Load data
 
-addresses <- readRDS("data/raw/0_address.RDS")
+addresses <- readRDS("data/raw/0_address20232024.RDS")
 
 #Create unique ID
 
@@ -32,12 +32,15 @@ addresses_clean <- addresses %>%
       # National or regional match
       geocode_match_type == "match_by_country_or_state" ~ "country",
       
+      #Unmatched and assigned to municipality center
+      geocode_location_type=="Muni center"~"muni_center",
+      
       # Missing or unclassified
       TRUE ~ "unknown"
     )
   ) %>%
   select(geocode_id, sn, mun, direccion_full, geocode_accuracy, geocode_match_address) %>%
-  mutate(geocode_accuracy = factor(geocode_accuracy, levels=c("full_match", "street", "place", "city", "country", "unknown")))
+  mutate(geocode_accuracy = factor(geocode_accuracy, levels=c("full_match", "street", "place", "city", "country", "unknown", "muni_center")))
   
 saveRDS(addresses_clean, "data/clean/addresses_geocode_pts.Rds")
 

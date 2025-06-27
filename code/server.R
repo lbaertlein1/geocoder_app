@@ -214,11 +214,12 @@ accuracy_labels <- c(
   place      = "Place or Landmark",
   city       = "City or Town",
   country    = "Country",
-  unknown    = "Unknown"
+  unknown    = "Unknown",
+  muni_center= "Mun center"
 )
 
 # Match with existing levels
-accuracy_levels <- c("full_match", "street", "place", "city", "country", "unknown")
+accuracy_levels <- c("full_match", "street", "place", "city", "country", "unknown","muni_center")
 
 # Colors for each accuracy level
 accuracy_colors <- c(
@@ -227,7 +228,8 @@ accuracy_colors <- c(
   place      = "#ffff00",  # yellow
   city       = "#ff9933",  # orange
   country    = "#ff3300",  # red-orange
-  unknown    = "#cc00ff"   # magenta
+  unknown    = "#cc00ff",  # magenta
+  muni_center= "#00008B"   #darkblue
 )
 
 # Color factor for Leaflet
@@ -238,7 +240,8 @@ buffer_lookup <- c(
   place      = 0.01,
   city       = 0.02,
   country    = 0.05,
-  unknown    = 0.02
+  unknown    = 0.02,
+  muni_center= 0.02
 )
 
 # ---- Helper functions ----
