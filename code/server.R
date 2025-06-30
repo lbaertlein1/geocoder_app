@@ -272,6 +272,28 @@ clear_session_state <- function(session, corrected_point, reverse_address, selec
 
 
 add_corrected_marker <- function(proxy, data) {
+  
+  # Define distances and labels
+  distances <- c(100, 250, 500, 1000)
+  labels <- paste0(distances, "m")
+  
+  # Project point for buffer creation
+  pt_proj <- st_transform(data, 3857)
+  
+  # Create buffer polygons
+  buffers <- lapply(distances, function(d) st_buffer(pt_proj, d))
+  
+  # Create label points due east
+  label_points <- lapply(seq_along(distances), function(i) {
+    coords <- st_coordinates(pt_proj)
+    label_pt <- st_point(c(coords[1] + distances[i], coords[2]))  # due east
+    st_sf(label = labels[i], geometry = st_sfc(label_pt, crs = 3857))
+  })
+  
+  # Transform everything back to WGS84
+  buffers_wgs84 <- lapply(buffers, \(b) st_transform(b, 4326))
+  label_sf <- do.call(rbind, lapply(label_points, \(p) st_transform(p, 4326)))
+  
   proxy %>%
     clearGroup("Corrected Point") %>%
     addAwesomeMarkers(
@@ -281,6 +303,17 @@ add_corrected_marker <- function(proxy, data) {
       ),
       popup = "Corrected location",
       group = "Corrected Point"
+    ) %>%
+    addPolygons(data = buffers_wgs84[[1]], group = "buffers", fillOpacity = 0.2, weight = 2, color = "#a50f15") %>%
+    addPolygons(data = buffers_wgs84[[2]], group = "buffers", fillOpacity = 0.2, weight = 2, color = "#de2d26") %>%
+    addPolygons(data = buffers_wgs84[[3]], group = "buffers", fillOpacity = 0.2, weight = 2, color = "#fb6a4a") %>%
+    addPolygons(data = buffers_wgs84[[4]], group = "buffers", fillOpacity = 0.2, weight = 2, color = "#fc9272") %>%
+    addLabelOnlyMarkers(
+      data = label_sf,
+      label = ~label,
+      labelOptions = labelOptions(noHide = TRUE, direction = "left", textOnly = TRUE,
+                                  style = list("font-weight" = "bold")),
+      group = "buffers"
     )
 }
 
