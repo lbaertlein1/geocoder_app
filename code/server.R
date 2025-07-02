@@ -76,50 +76,7 @@ sync_confirmed_data <- function() {
     tibble()
   })
 }
-# Upload updated confirmed data to Dropbox
-# upload_confirmed_data <- function(updated_df) {
-#   # Refresh access token
-#   token_res <- httr::POST(
-#     url = "https://api.dropboxapi.com/oauth2/token",
-#     body = list(
-#       grant_type = "refresh_token",
-#       refresh_token = DROPBOX_REFRESH_TOKEN,
-#       client_id = DROPBOX_APP_KEY,
-#       client_secret = DROPBOX_APP_SECRET
-#     ),
-#     encode = "form"
-#   )
-#   token <- httr::content(token_res)$access_token
-#   if (is.null(token)) {
-#     message("Dropbox token refresh failed.")
-#     return()
-#   }
-#   
-#   # Write to temp file and upload
-#   temp_file <- tempfile(fileext = ".rds")
-#   saveRDS(updated_df, temp_file)
-#   
-#   tryCatch({
-#     httr::POST(
-#       DROPBOX_UPLOAD_URL,
-#       httr::add_headers(
-#         Authorization = paste("Bearer", token),
-#         `Content-Type` = "application/octet-stream",
-#         `Dropbox-API-Arg` = jsonlite::toJSON(
-#           list(
-#             path = DROPBOX_UPLOAD_PATH,
-#             mode = "overwrite",
-#             autorename = FALSE,
-#             mute = TRUE
-#           ), auto_unbox = TRUE
-#         )
-#       ),
-#       body = httr::upload_file(temp_file)
-#     )
-#   }, error = function(e) {
-#     message("Dropbox upload failed: ", e$message)
-#   })
-# }
+
 upload_confirmed_data <- function(updated_df) {
   # Step 1: Refresh access token
   token_res <- httr::POST(
@@ -146,6 +103,14 @@ upload_confirmed_data <- function(updated_df) {
   }, error = function(e) {
     tibble()
   })
+  
+  existing_hash <- digest::digest(existing_df)
+  updated_hash  <- digest::digest(updated_df)
+  
+  if (identical(existing_hash, updated_hash)) {
+    message("no upload needed")
+    return()
+  }
   
   # Step 3: Harmonize columns between existing and updated data
   all_cols <- union(names(existing_df), names(updated_df))
@@ -718,6 +683,21 @@ server <- function(input, output, session, username) {
       updated_row <- existing_df %>% filter(sn == sn_val)
     } else {
       # Normal mode: either replace or add new confirmed row
+      existing_row <- existing_df %>% filter(sn == sn_val)
+      if (nrow(existing_row) == 0) {
+        existing_row <- tibble(
+          validation_latitude = NA_real_,
+          validation_longitude = NA_real_,
+          validation_timestamp = as.POSIXct(NA),
+          validation_user = NA_character_,
+          validation_location_type = NA_character_,
+          validation_precision_meters = NA_character_,
+          validation_not_found = NA_character_,
+          validation_notes = NA_character_,
+          validation_start_time = as.POSIXct(NA)
+        )
+      }
+      
       new_row <- tibble(
         sn = sn_val,
         latitude = lat_val,
@@ -729,7 +709,18 @@ server <- function(input, output, session, username) {
         notes = input$notes,
         start_time = start_timer(),
         timestamp = now,
-        user = username()
+        user = username(),
+        
+        # Preserve validation fields if already present
+        validation_latitude = existing_row$validation_latitude %||% NA_real_,
+        validation_longitude = existing_row$validation_longitude %||% NA_real_,
+        validation_timestamp = existing_row$validation_timestamp %||% as.POSIXct(NA),
+        validation_user = existing_row$validation_user %||% NA_character_,
+        validation_location_type = existing_row$validation_location_type %||% NA_character_,
+        validation_precision_meters = existing_row$validation_precision_meters %||% NA_character_,
+        validation_not_found = existing_row$validation_not_found %||% NA_character_,
+        validation_notes = existing_row$validation_notes %||% NA_character_,
+        validation_start_time = existing_row$validation_start_time %||% as.POSIXct(NA)
       )
       
       updated_df <- bind_rows(existing_df, new_row) %>%
