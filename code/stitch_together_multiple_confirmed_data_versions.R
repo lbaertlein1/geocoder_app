@@ -5,10 +5,10 @@ library(dplyr)
 library(purrr)
 
 # --- CONFIG ---
-app_key <- "kfjfrbpurzp0osl"
-app_secret <- "o474m234pv94b5k"
-refresh_token <- "r30R79hE8_0AAAAAAAAAAVFg-9zt4Da2SkI0xf30qBmfyKWEXl9DIPE__ax9TFa2"
-dropbox_path <- "/Apps/apmis_dashboard_log_app/confirmed_data.Rds"
+app_key <- "<your_app_key>"
+app_secret <- "<your_app_secret>"
+refresh_token <- "<your_app_refresh_token>"
+dropbox_path <- "<your_dropbox_path>"
 
 # Step 1: Refresh Dropbox access token
 get_access_token <- function(refresh_token, app_key, app_secret) {
