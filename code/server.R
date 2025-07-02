@@ -943,7 +943,7 @@ server <- function(input, output, session, username) {
   })
   
   output$dashboard_button_ui <- renderUI({
-    if (username() %in% c("BypassUser", "Clary", "Carol","vcu")) {
+    if (username() %in% c("BypassUser", "Clary", "Carol","vcu","epi")) {
       actionButton("dashboard", "Dashboard", icon = icon("tachometer-alt"), width = "100%")
     }
   })
