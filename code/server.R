@@ -166,12 +166,20 @@ upload_confirmed_data <- function(updated_df) {
   updated_df <- updated_df[, all_cols]
   
   # Coerce types to match existing_df
+  # Preserve specific types for known columns
+  known_numeric_cols <- c("latitude", "longitude", "validation_latitude", "validation_longitude")
+  known_datetime_cols <- c("timestamp", "start_time", "validation_timestamp", "validation_start_time")
+  
   for (col in all_cols) {
-    type_existing <- typeof(existing_df[[col]])
-    type_updated <- typeof(updated_df[[col]])
-    
-    if (type_existing != type_updated) {
-      # Coerce both to character if they differ
+    # If in known numeric columns
+    if (col %in% known_numeric_cols) {
+      existing_df[[col]] <- suppressWarnings(as.numeric(existing_df[[col]]))
+      updated_df[[col]] <- suppressWarnings(as.numeric(updated_df[[col]]))
+    } else if (col %in% known_datetime_cols) {
+      existing_df[[col]] <- suppressWarnings(as.POSIXct(existing_df[[col]], origin = "1970-01-01", tz = "UTC"))
+      updated_df[[col]] <- suppressWarnings(as.POSIXct(updated_df[[col]], origin = "1970-01-01", tz = "UTC"))
+    } else {
+      # For all others, coerce to character as fallback
       existing_df[[col]] <- as.character(existing_df[[col]])
       updated_df[[col]] <- as.character(updated_df[[col]])
     }
