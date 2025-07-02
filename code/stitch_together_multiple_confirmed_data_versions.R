@@ -5,10 +5,15 @@ library(dplyr)
 library(purrr)
 
 # --- CONFIG ---
-app_key <- "<your_app_key>"
-app_secret <- "<your_app_secret>"
-refresh_token <- "<your_app_refresh_token>"
-dropbox_path <- "<your_dropbox_path>"
+
+dropbox_keys <- rio::import("data/account_info.xlsx", which = "Dropbox") %>%
+  select(name, value) %>%
+  deframe()
+
+app_key <- dropbox_keys[["DROPBOX_APP_KEY"]]
+app_secret <- dropbox_keys[["DROPBOX_APP_SECRET"]]
+refresh_token <- dropbox_keys[["DROPBOX_REFRESH_TOKEN"]]
+dropbox_path <- dropbox_keys[["DROPBOX_UPLOAD_PATH"]]
 
 # Step 1: Refresh Dropbox access token
 get_access_token <- function(refresh_token, app_key, app_secret) {
@@ -134,14 +139,15 @@ main_data <- combined_data %>%
   select(sn, ._version, ._rev, everything()) %>%
   select(-starts_with("validation_")) %>%
   mutate(
-    has_main_coords = !is.na(latitude) & !is.na(longitude)
+    has_main_coords = !is.na(latitude) & !is.na(longitude),
+    has_precision   = !is.na(precision_meters)
   ) %>%
   filter(!(user %in% c("BypassUser", "Carol"))) %>%
   group_by(sn) %>%
-  arrange(desc(has_main_coords), desc(._version)) %>%
+  arrange(desc(has_main_coords), desc(has_precision), desc(._version)) %>%
   slice(1) %>%
   ungroup() %>%
-  select(-has_main_coords, -._rev) %>%
+  select(-has_main_coords, -has_precision, -._rev) %>%
   filter(!(as.Date(._version) == "2025-06-26"))
 
 # Step 2: Extract validation fields

@@ -291,7 +291,17 @@ add_corrected_marker <- function(proxy, data) {
 }
 
 render_address_table <- function(addresses, completed, confirmed) {
-  addresses %>%
+  # Build a data frame of precision_meters from the confirmed list
+  precision_df <- tibble(
+    sn = names(confirmed),
+    precision_meters = sapply(confirmed, function(x) {
+      val <- x$precision_meters %||% NA_character_
+      if (is.null(val) || is.na(val) || val == "") "Not Specified" else val
+    })
+  )
+  
+  
+  temp <- addresses %>%
     rowwise() %>%
     mutate(
       completed = case_when(
@@ -302,8 +312,12 @@ render_address_table <- function(addresses, completed, confirmed) {
         TRUE ~ "No"
       )
     ) %>%
-    ungroup() %>%
-    select(direccion_full, completed, mun, sn) %>%
+    ungroup()
+  
+  temp %>%
+    left_join(precision_df,
+              by=c("sn")) %>%
+    select(direccion_full, completed, precision_meters, mun, sn) %>%
     datatable(
       selection = "single",
       filter = "top",
@@ -317,8 +331,9 @@ render_address_table <- function(addresses, completed, confirmed) {
           list(targets = "_all", className = "dt-left wrap-text"),
           list(targets = 0, width = "50%"),
           list(targets = 1, width = "10%"),
-          list(targets = 2, width = "20%"),
-          list(targets = 3, width = "20%")
+          list(targets = 2, width = "10%"),
+          list(targets = 3, width = "10%"),
+          list(targets = 4, width = "20%")
         ),
         dom = 'tip'  # include filtering and table only
       ),
@@ -336,11 +351,11 @@ render_address_table <- function(addresses, completed, confirmed) {
       # ),
       escape = FALSE,
       rownames = FALSE,
-      colnames = c("Address", "Done?", "Mun.", "ID")
+      colnames = c("Address", "Done?", "Precision", "Mun.", "ID")
     ) %>%
     formatStyle(
-      columns = 1:4,
-      fontSize = '10px',
+      columns = 1:5,
+      fontSize = '8px',
       padding = '1px'
     )
 }
