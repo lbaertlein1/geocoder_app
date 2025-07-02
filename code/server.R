@@ -355,7 +355,7 @@ render_address_table <- function(addresses, completed, confirmed) {
     ) %>%
     formatStyle(
       columns = 1:5,
-      fontSize = '8px',
+      fontSize = '10px',
       padding = '1px'
     )
 }
@@ -1314,8 +1314,8 @@ server <- function(input, output, session, username) {
     total_reviewed <- sum(reviewed_df$n)
     reviewed_df <- reviewed_df %>%
       mutate(
-        percent = round(n / total_reviewed * 100, 1),
-        label = paste0(percent, "% (", n, "/", total_reviewed, ")"),
+        percent = round(n / total_reviewed * 100, 0),
+        label = paste0(percent, "%\n(", n, "/\n", total_reviewed, ")"),
         color = c(
           "Concurrent"       = "#377eb8",
           "Int. Area Diff."  = "#984ea3",
@@ -1330,10 +1330,12 @@ server <- function(input, output, session, username) {
       y = ~percent,
       type = "bar",
       text = ~label,
+      textposition = "outside",
+      textfont = list(size = 8),
       hoverinfo = "text",
       marker = list(
         color = ~color,
-        line = list(color = "black", width = 1)  # Black outline
+        line = list(color = "black", width = 1)
       )
     ) %>%
       layout(
@@ -1341,12 +1343,13 @@ server <- function(input, output, session, username) {
         yaxis = list(
           title = list(text = "% of Reviewed", font = list(size = 8)),
           tickfont = list(size = 8),
-          range = c(0, 100)
+          range = c(0, 110)
         ),
         xaxis = list(
           title = "",
           tickfont = list(size = 8)
-        )
+        ),
+        uniformtext = list(minsize = 8, mode = "show")
       ) %>%
       config(
         displaylogo = FALSE,
@@ -1357,10 +1360,13 @@ server <- function(input, output, session, username) {
   output$bar_completed_by_level <- renderPlotly({
     df <- full_data() %>%
       filter(!is.na(timestamp)) %>%
-      mutate(location_type = case_when(!is.na(location_type) & location_type != "" ~ location_type,
-                                       !is.na(not_found) ~ "Not Found")) %>%
+      mutate(location_type = case_when(
+        !is.na(location_type) & location_type != "" ~ location_type,
+        !is.na(not_found) ~ "Not Found",
+        TRUE ~ "Not Specified"
+      )) %>%
       count(location_type, name = "n")
-      
+    
     total <- sum(df$n)
     
     # Define color map
@@ -1371,13 +1377,14 @@ server <- function(input, output, session, username) {
       "Neighborhood" = "#7fcdbb",
       "City" = "#c7e9b4",
       "Other" = "#ffffcc",
-      "Not Found" = "#de2d26"
+      "Not Found" = "#de2d26",
+      "Not Specified" = "#bdbdbd"
     )
     
     df <- df %>%
       mutate(
-        percent = round(n / total * 100, 1),
-        label = paste0(percent, "% (", n, "/", total, ")"),
+        percent = round(n / total * 100, 0),
+        label = paste0(percent, "%\n(", n, "/\n", total, ")"),
         color = color_map[location_type],
         location_type = factor(location_type, levels = names(color_map))
       )
@@ -1388,13 +1395,15 @@ server <- function(input, output, session, username) {
       y = ~percent,
       type = "bar",
       text = ~label,
+      textposition = "outside",
+      textfont = list(size = 8),
       hoverinfo = "text",
       marker = list(
         color = ~color,
-        line = list(color = "black", width = 1)  # Black outline
+        line = list(color = "black", width = 1)
       )
     ) %>%
-     layout(
+      layout(
         title = list(text = "Location Type:", font = list(size = 10)),
         yaxis = list(
           title = list(text = "% of Addresses", font = list(size = 8)),
@@ -1404,7 +1413,75 @@ server <- function(input, output, session, username) {
         xaxis = list(
           title = "",
           tickfont = list(size = 8)
+        ),
+        uniformtext = list(minsize = 8, mode = "show")
+      ) %>%
+      config(
+        displaylogo = FALSE,
+        modeBarButtons = list(list("toImage"))
+      )
+  })
+  
+  
+  output$bar_completed_by_precision <- renderPlotly({
+    df <- full_data() %>%
+      filter(!is.na(timestamp)) %>%
+      mutate(
+        precision_meters = case_when(
+          !is.na(precision_meters) & precision_meters != "" ~ precision_meters,
+          !is.na(not_found) & not_found != "" ~ "Not Found",
+          TRUE ~ "Not Specified"
         )
+      ) %>%
+      count(precision_meters, name = "n")
+    
+    total <- sum(df$n)
+    
+    # Define color map
+    color_map <- c(
+      "<100m" = "#253494",
+      "<250m" = "#2c7fb8",
+      "<500m" = "#41b6c4",
+      "<1000m" = "#7fcdbb",
+      ">1000m" = "#c7e9b4",
+      "Not Specified" = "#de2d26",
+      "Not Found" = "grey"
+    )
+    
+    df <- df %>%
+      mutate(
+        percent = round(n / total * 100, 0),
+        label = paste0(percent, "%\n(", n, "/\n", total, ")"),
+        color = color_map[precision_meters],
+        precision_meters = factor(precision_meters, levels = names(color_map))
+      )
+    
+    plot_ly(
+      data = df,
+      x = ~precision_meters,
+      y = ~percent,
+      type = "bar",
+      text = ~label,
+      textfont = list(size = 8),
+      textposition = "outside",
+      hoverinfo = "text",
+      marker = list(
+        color = ~color,
+        line = list(color = "black", width = 1)
+      )
+    ) %>%
+      layout(
+        title = list(text = "Precision:", font = list(size = 10)),
+        yaxis = list(
+          title = list(text = "% of Addresses", font = list(size = 8)),
+          tickfont = list(size = 8),
+          range = c(0, 100)
+        ),
+        xaxis = list(
+          title = "",
+          tickfont = list(size = 8)
+        ),
+        uniformtext = list(minsize = 8, mode = "show")
       ) %>%
       config(
         displaylogo = FALSE,

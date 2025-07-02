@@ -231,14 +231,13 @@ ui <- fluidPage(
                  column(
                    width = 6,
                    actionButton("sync_data", "Sync Data", icon = icon("sync"), width = "100%")
+                 ),
+                 column(
+                   width = 6,
+                   actionButton("validate_pt", "Validate a Completed Address", icon = icon("check-circle"), class = "btn btn-warning", width = "100%")
                  )
-                 # ,
-                 # column(
-                 #   width = 6,
-                 #   actionButton("validate_pt", "Validate a Completed Address", icon = icon("check-circle"), class = "btn btn-warning", width = "100%")
-                 # )
-                 # ,
-                 # column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
+                 ,
+                 column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
                ),
                fluidRow(
                  column(width = 6, downloadButton("download_data", "Completed Data", width="100%")),
@@ -308,7 +307,7 @@ tabPanel("dashboard", value = "dashboard",
                  withSpinner(uiOutput("card_median_time", height = "45px"))  # Intentional duplicate for layout
              ),
              div(style = "margin-bottom: 10px;",
-                 withSpinner(plotlyOutput("boxplot_time_by_user", height = "215px"))
+                 withSpinner(plotlyOutput("bar_completed_by_precision", height = "215px"))
              ),
              withSpinner(plotlyOutput("bar_completed_by_level", height = "215px"))
            )
