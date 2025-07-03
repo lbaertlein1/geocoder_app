@@ -361,7 +361,7 @@ render_address_table <- function(addresses, completed, confirmed) {
 }
 
 # ---- Server ----
-server <- function(input, output, session, username) {
+server <- function(input, output, session, username, user_group) {
   corrected_point <- reactiveVal(NULL)
   confirmed_data  <- reactiveValues(data = list())
   completed_rows  <- reactiveValues(done = character())
@@ -646,6 +646,12 @@ server <- function(input, output, session, username) {
   })
   
   observeEvent(input$confirm_point, {
+    
+    if (!is.na(user_group()) && !is.null(user_group()) && user_group() == "view_only") {
+      showNotification("User account is view-only. Data not submitted.", type = "error")
+      return(NULL)
+    }
+    
     sn_val <- selected_sn()
     req(sn_val)
     
@@ -949,7 +955,7 @@ server <- function(input, output, session, username) {
   })
   
   output$dashboard_button_ui <- renderUI({
-    if (username() %in% c("BypassUser", "Clary", "Carol","vcu","epi")) {
+    if (username() %in% c("BypassUser", "Clary", "Carol","vcu","epi") | user_group()=="view_only") {
       actionButton("dashboard", "Dashboard", icon = icon("tachometer-alt"), width = "100%")
     }
   })

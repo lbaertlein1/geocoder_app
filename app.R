@@ -66,7 +66,7 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, session) {
-  credentials <- reactiveValues(authenticated = FALSE, user = NULL)
+  credentials <- reactiveValues(authenticated = FALSE, user = NULL, group = NULL)
   
   output$main_ui <- renderUI({
     if (bypass_login || credentials$authenticated) {
@@ -79,20 +79,30 @@ server <- function(input, output, session) {
   if (bypass_login) {
     credentials$authenticated <- TRUE
     credentials$user <- "BypassUser"
-    app_server(input, output, session, username = reactive({ credentials$user }))
+    credentials$group <- "admin"  # or some default group
+    app_server(input, output, session,
+               username = reactive({ credentials$user }),
+               user_group = reactive({ credentials$group }))
   }
   
   observeEvent(input$login_btn, {
     req(input$user, input$password)
-    valid <- any(input$user == valid_users$username & input$password == valid_users$password)
-    if (valid) {
+    
+    matched_row <- valid_users %>%
+      filter(username == input$user & password == input$password)
+    
+    if (nrow(matched_row) == 1) {
       credentials$authenticated <- TRUE
-      credentials$user <- input$user  # Save username
-      app_server(input, output, session, username = reactive({ credentials$user }))
+      credentials$user <- matched_row$username
+      credentials$group <- matched_row$group
+      app_server(input, output, session,
+                 username = reactive({ credentials$user }),
+                 user_group = reactive({ credentials$group }))
     } else {
       output$login_message <- renderText("Invalid username or password.")
     }
   })
 }
+
 
 shinyApp(ui, server)
