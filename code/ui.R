@@ -236,8 +236,8 @@ ui <- fluidPage(
                    width = 6,
                    actionButton("validate_pt", "Validate a Completed Address", icon = icon("check-circle"), class = "btn btn-warning", width = "100%")
                  )
-                 ,
-                 column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
+                 #,
+                 #column(width = 6, downloadButton("download_sop", "Geocoding SOP", width="100%"))
                ),
                fluidRow(
                  column(width = 6, downloadButton("download_data", "Completed Data", width="100%")),
