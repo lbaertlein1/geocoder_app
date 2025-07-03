@@ -647,7 +647,7 @@ server <- function(input, output, session, username, user_group) {
   
   observeEvent(input$confirm_point, {
     
-    if (!is.na(user_group()) && !is.null(user_group()) && user_group() == "view_only") {
+    if (!is.na(user_group()) && !is.null(user_group()) && user_group() %in% c("view_only")) {
       showNotification("User account is view-only. Data not submitted.", type = "error")
       return(NULL)
     }
@@ -955,7 +955,7 @@ server <- function(input, output, session, username, user_group) {
   })
   
   output$dashboard_button_ui <- renderUI({
-    if (username() %in% c("BypassUser", "Clary", "Carol","vcu","epi") | user_group()=="view_only") {
+    if (username() %in% c("BypassUser", "Clary", "Carol","vcu","epi") | user_group() %in% c("view_only")) {
       actionButton("dashboard", "Dashboard", icon = icon("tachometer-alt"), width = "100%")
     }
   })
