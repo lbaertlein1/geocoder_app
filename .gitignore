@@ -39,3 +39,6 @@ data/El Salvador_Municipios.zip
 data/sa_area_base2.geojson
 data/sss_area_base.geojson
 deploy_app.R
+
+#other files
+santa_ana_random_addresses.xlsx
