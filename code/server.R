@@ -7,31 +7,36 @@ addresses          <- readRDS("data/clean/addresses_list.Rds")
 geocode_pts        <- readRDS("data/clean/addresses_geocode_pts.Rds")
 santa_ana_coords   <- c(lng = -89.604, lat = 13.982)
 
+#####################
+###Scramble address##
+#####################
+scramble_address <- function(addr) {
+  words <- unlist(strsplit(addr, "\\s+"))
+  words <- words[!grepl("^\\d+$", words)]           # remove numbers
+  scrambled <- sample(words)                        # shuffle
+  paste(head(scrambled, 6), collapse = " ")        # first 6 words
+}
 
-# ---- Dropbox Sync Helpers ----
-# Import and convert to named list
-dropbox_keys <- rio::import("data/account_info.xlsx", which = "Dropbox") %>%
-  select(name, value) %>%
-  deframe()
+# Example
+addresses <- addresses %>%
+  rowwise() %>%
+  mutate(direccion_full = scramble_address(direccion_full)) %>%
+  ungroup()
 
-# Access each variable
-DROPBOX_DOWNLOAD_URL  <- dropbox_keys[["DROPBOX_DOWNLOAD_URL"]]
-DROPBOX_UPLOAD_URL    <- dropbox_keys[["DROPBOX_UPLOAD_URL"]]
-DROPBOX_UPLOAD_PATH   <- dropbox_keys[["DROPBOX_UPLOAD_PATH"]]
-DROPBOX_REFRESH_TOKEN <- dropbox_keys[["DROPBOX_REFRESH_TOKEN"]]
-DROPBOX_APP_KEY       <- dropbox_keys[["DROPBOX_APP_KEY"]]
-DROPBOX_APP_SECRET    <- dropbox_keys[["DROPBOX_APP_SECRET"]]
+sn_select <- addresses$sn[1:200]
 
-#FOR TESTING
-# DROPBOX_UPLOAD_PATH <- "/Apps/apmis_dashboard_log_app/confirmed_data_testing.Rds"
-# DROPBOX_DOWNLOAD_URL <- "https://www.dropbox.com/scl/fi/r9bpb5gdxr5k2bjrp1ajs/confirmed_data_testing.Rds?rlkey=7g07zvs3ir783u2migzmlqsz9&st=u5ckcd8o&dl=1"
+addresses <- addresses%>%filter(sn%in%sn_select)
+geocode_pts<- geocode_pts%>%filter(sn%in%sn_select)
 
-# Load and merge confirmed data from Dropbox
+
+
+# Load and merge confirmed data from database
 sync_confirmed_data <- function() {
-  temp_file <- tempfile(fileext = ".rds")
+  #temp_file <- tempfile(fileext = ".rds")
   tryCatch({
-    httr::GET(DROPBOX_DOWNLOAD_URL, httr::write_disk(temp_file, overwrite = TRUE))
-    raw_data <- readRDS(temp_file)
+    #raw_data <- readRDS(temp_file)
+    raw_data <- readRDS("data/geocoded/confirmed_data.RDS")
+    raw_data <- raw_data%>%filter(sn%in%sn_select)
     
     # If it's already a data frame, return it
     if (is.data.frame(raw_data)) return(as_tibble(raw_data))
@@ -72,37 +77,20 @@ sync_confirmed_data <- function() {
     tibble()
     
   }, error = function(e) {
-    message("Dropbox sync failed: ", e$message)
+    message("Local RDS read failed:", e$message)
     tibble()
   })
 }
 
 upload_confirmed_data <- function(updated_df) {
-  # Step 1: Refresh access token
-  token_res <- httr::POST(
-    url = "https://api.dropboxapi.com/oauth2/token",
-    body = list(
-      grant_type = "refresh_token",
-      refresh_token = DROPBOX_REFRESH_TOKEN,
-      client_id = DROPBOX_APP_KEY,
-      client_secret = DROPBOX_APP_SECRET
-    ),
-    encode = "form"
-  )
-  token <- httr::content(token_res)$access_token
-  if (is.null(token)) {
-    message("Dropbox token refresh failed.")
-    return()
-  }
+  file_path <- "data/geocoded/confirmed_data.RDS"
   
-  # Step 2: Read existing data from Dropbox
-  temp_dl <- tempfile(fileext = ".rds")
-  existing_df <- tryCatch({
-    httr::GET(DROPBOX_DOWNLOAD_URL, httr::write_disk(temp_dl, overwrite = TRUE))
-    readRDS(temp_dl)
-  }, error = function(e) {
+  #Step 1: Read existing data
+  existing_df <- if(file.exists(file_path)){
+    readRDS(file_path)
+  } else{
     tibble()
-  })
+  }
   
   existing_hash <- digest::digest(existing_df)
   updated_hash  <- digest::digest(updated_df)
@@ -154,29 +142,9 @@ upload_confirmed_data <- function(updated_df) {
   combined_df <- dplyr::rows_upsert(existing_df, updated_df, by = "sn")
 
   # Step 5: Upload merged data
-  temp_file <- tempfile(fileext = ".rds")
-  saveRDS(combined_df, temp_file)
-  
-  tryCatch({
-    httr::POST(
-      DROPBOX_UPLOAD_URL,
-      httr::add_headers(
-        Authorization = paste("Bearer", token),
-        `Content-Type` = "application/octet-stream",
-        `Dropbox-API-Arg` = jsonlite::toJSON(
-          list(
-            path = DROPBOX_UPLOAD_PATH,
-            mode = "overwrite",
-            autorename = FALSE,
-            mute = TRUE
-          ), auto_unbox = TRUE
-        )
-      ),
-      body = httr::upload_file(temp_file)
-    )
-  }, error = function(e) {
-    message("Dropbox upload failed: ", e$message)
-  })
+  #temp_file <- tempfile(fileext = ".rds")
+  saveRDS(combined_df, file_path)
+
 }
 
 # ---- Shared palette + buffer size ----
@@ -375,7 +343,7 @@ server <- function(input, output, session, username, user_group) {
   full_data <- reactiveVal(tibble())
   selected_point <- reactiveVal(NULL)
   
-  # ---- Load completed data from Dropbox on startup ----
+  # ---- Load completed data from on startup ----
   observe({
     initial_confirmed_df <- sync_confirmed_data()
     
@@ -473,7 +441,7 @@ server <- function(input, output, session, username, user_group) {
       clearGroup("buffers") %>%
       clearControls()
     
-    #Step 2: Sync confirmed data from Dropbox (local-only for current SN)
+    #Step 2: Sync confirmed data from (local-only for current SN)
     latest_confirmed_df <- sync_confirmed_data()
     latest_confirmed_list <- lapply(seq_len(nrow(latest_confirmed_df)), function(i) {
       row <- latest_confirmed_df[i, ]
@@ -796,7 +764,7 @@ server <- function(input, output, session, username, user_group) {
   output$download_data <- downloadHandler(
     filename = function() paste0("completed_geocoding_", Sys.Date(), ".xlsx"),
     content = function(file) {
-      #Always get latest data from Dropbox (not from session)
+      #Always get latest data from database (not from session)
       latest_df <- sync_confirmed_data()
       
       # If nothing was confirmed, fall back to raw address list
