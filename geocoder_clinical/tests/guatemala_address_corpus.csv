@@ -1,0 +1,17 @@
+case_id,query,query_class,expected_variant,expected_latitude,expected_longitude,tolerance_km
+urban_nomenclature,4 Avenida y 10 Calle zona 1 Guatemala,numbered_urban,4 Avenida y 10 Calle zona 1,NA,NA,NA
+urban_house_number,20 Calle 5-78 zona 10 Guatemala,numbered_urban,20 Calle 5-78 zona 10,NA,NA,NA
+urban_abbreviated,6a Av. 15-22 z. 10 Guatemala,abbreviated,6 Avenida 15-22 zona 10,NA,NA,NA
+urban_cross_streets,4 Avenida y 10 Calle zona 1,intersection,4 Avenida y 10 Calle zona 1,NA,NA,NA
+rural_settlement,Aldea El Gariton Guatemala,rural_settlement,Aldea El Gariton,NA,NA,NA
+rural_caserio,Caserio Monte Cristo Guatemala,rural_settlement,Caserio Monte Cristo,NA,NA,NA
+rural_parcelamiento,Parcelamiento Tierra Linda Guatemala,rural_settlement,Parcelamiento Tierra Linda,NA,NA,NA
+lotification,Lot. Magnolia Coatepeque,subdivision,Lotificacion Magnolia Coatepeque,14.688786,-91.885564,1.5
+colonia,Col. Centro Coatepeque,subdivision,Colonia Centro Coatepeque,NA,NA,NA
+landmark_church,Galves Flores Costa Cuca proximo iglesia principe,landmark_proximity,"Iglesia principe, Galves Flores Costa Cuca",14.69959,-91.8642,1
+landmark_school,frente a la escuela Galves Flores Costa Cuca,landmark_proximity,escuela Galves Flores Costa Cuca,NA,NA,NA
+landmark_market,cerca del mercado de Coatepeque,landmark_proximity,mercado de Coatepeque,NA,NA,NA
+landmark_colloquial,por la iglesia del centro Coatepeque,landmark_proximity,iglesia del centro Coatepeque,NA,NA,NA
+road_reference,km 210 carretera al Pacifico Coatepeque,road_reference,km 210 carretera al Pacifico Coatepeque,NA,NA,NA
+copied_result,Magnolia Coatepeque Quetzaltenango 09020 Guatemala,copied_standardized,NA,14.688786,-91.885564,1.5
+study_site,Coatepeque Quetzaltenango Guatemala,municipality,Coatepeque Quetzaltenango,14.70413,-91.86426,2

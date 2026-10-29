@@ -27,6 +27,9 @@ vignettes/*.pdf
 *.knit.md
 # R Environment Variables
 .Renviron
+.env
+.env.*
+!.env.example
 # pkgdown site
 docs/
 # translation temp files
